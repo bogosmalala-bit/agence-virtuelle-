@@ -22,39 +22,32 @@ import { AIApiKeyConfig } from '../types.js';
 
 export const AVAILABLE_GEMINI_MODELS = [
   {
-    id: 'gemini-3.8-flash',
-    name: 'Gemini 3.8 Flash',
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
     role: 'Vente & Messenger (Recommandé)',
     description: 'Modèle haute performance ultra-réactif pour l\'accueil, les commandes 7 champs et la négociation.',
     badgeColor: 'text-emerald-400 bg-emerald-950/80 border-emerald-500/30',
   },
   {
-    id: 'gemini-3.1-pro-preview',
-    name: 'Gemini 3.1 Pro',
+    id: 'gemini-2.5-pro',
+    name: 'Gemini 2.5 Pro',
     role: 'Raisonnement & Devis Avancés',
     description: 'Modèle de raisonnement complexe pour les devis sur mesure, calculs et cas clients délicats.',
     badgeColor: 'text-indigo-400 bg-indigo-950/80 border-indigo-500/30',
   },
   {
-    id: 'gemini-3.1-flash-lite',
-    name: 'Gemini 3.1 Flash-Lite',
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash',
     role: 'Vitesse Éclair & FAQ',
     description: 'Modèle ultra-rapide à latence minimale pour réponses instantanées et questions fréquentes.',
     badgeColor: 'text-amber-400 bg-amber-950/80 border-amber-500/30',
   },
   {
-    id: 'gemini-3.1-flash-image',
-    name: 'Gemini 3.1 Flash Image',
-    role: 'Vision & Multimodal',
-    description: 'Inspection visuelle de photos de produits, reçus Mobile Money et captures d\'écran.',
+    id: 'gemini-1.5-flash',
+    name: 'Gemini 1.5 Flash',
+    role: 'Compatibilité & Polyvalence',
+    description: 'Modèle léger et très fiable pour le traitement continu et la modération.',
     badgeColor: 'text-pink-400 bg-pink-950/80 border-pink-500/30',
-  },
-  {
-    id: 'gemini-3.5-transcribe',
-    name: 'Gemini 3.5 Transcribe',
-    role: 'Audio & Messages Vocaux',
-    description: 'Transcription et compréhension des messages vocaux Messenger des clients.',
-    badgeColor: 'text-cyan-400 bg-cyan-950/80 border-cyan-500/30',
   },
 ];
 

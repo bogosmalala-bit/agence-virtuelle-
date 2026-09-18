@@ -184,11 +184,11 @@ export const AssistantSettingsView: React.FC<AssistantSettingsViewProps> = ({
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {/* Model 1: gemini-3.8-flash */}
+            {/* Model 1: gemini-2.5-flash */}
             <div
-              onClick={() => setDefaultModel('gemini-3.8-flash')}
+              onClick={() => setDefaultModel('gemini-2.5-flash')}
               className={`cursor-pointer rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
-                defaultModel === 'gemini-3.8-flash'
+                defaultModel === 'gemini-2.5-flash' || defaultModel === 'gemini-3.8-flash'
                   ? 'border-blue-500 bg-blue-950/30 shadow-md shadow-blue-500/10 ring-1 ring-blue-500'
                   : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
               }`}
@@ -201,27 +201,27 @@ export const AssistantSettingsView: React.FC<AssistantSettingsViewProps> = ({
                   <input
                     type="radio"
                     name="geminiModel"
-                    checked={defaultModel === 'gemini-3.8-flash'}
-                    onChange={() => setDefaultModel('gemini-3.8-flash')}
+                    checked={defaultModel === 'gemini-2.5-flash' || defaultModel === 'gemini-3.8-flash'}
+                    onChange={() => setDefaultModel('gemini-2.5-flash')}
                     className="h-3.5 w-3.5 text-blue-500"
                   />
                 </div>
-                <h4 className="font-bold text-xs text-white">Gemini 3.8 Flash</h4>
+                <h4 className="font-bold text-xs text-white">Gemini 2.5 Flash</h4>
                 <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
                   <strong>Vente & Messenger</strong> : Réponse ultra-rapide, accueil client fluide, excellente négociation de prix et prise de commandes 7 champs.
                 </p>
               </div>
               <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
-                <span>Modèle : gemini-3.8-flash</span>
+                <span>Modèle : gemini-2.5-flash</span>
                 <span className="text-emerald-400 font-semibold">Par Défaut</span>
               </div>
             </div>
 
-            {/* Model 2: gemini-3.1-pro-preview */}
+            {/* Model 2: gemini-2.5-pro */}
             <div
-              onClick={() => setDefaultModel('gemini-3.1-pro-preview')}
+              onClick={() => setDefaultModel('gemini-2.5-pro')}
               className={`cursor-pointer rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
-                defaultModel === 'gemini-3.1-pro-preview'
+                defaultModel === 'gemini-2.5-pro' || defaultModel === 'gemini-3.1-pro-preview'
                   ? 'border-blue-500 bg-blue-950/30 shadow-md shadow-blue-500/10 ring-1 ring-blue-500'
                   : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
               }`}
@@ -234,27 +234,27 @@ export const AssistantSettingsView: React.FC<AssistantSettingsViewProps> = ({
                   <input
                     type="radio"
                     name="geminiModel"
-                    checked={defaultModel === 'gemini-3.1-pro-preview'}
-                    onChange={() => setDefaultModel('gemini-3.1-pro-preview')}
+                    checked={defaultModel === 'gemini-2.5-pro' || defaultModel === 'gemini-3.1-pro-preview'}
+                    onChange={() => setDefaultModel('gemini-2.5-pro')}
                     className="h-3.5 w-3.5 text-blue-500"
                   />
                 </div>
-                <h4 className="font-bold text-xs text-white">Gemini 3.1 Pro</h4>
+                <h4 className="font-bold text-xs text-white">Gemini 2.5 Pro</h4>
                 <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
                   <strong>Raisonnement Avancé</strong> : Analyse détaillée, calculs précis de devis, argumentaires de vente poussés et gestion des cas clients délicats.
                 </p>
               </div>
               <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-500">
-                <span>Modèle : gemini-3.1-pro-preview</span>
+                <span>Modèle : gemini-2.5-pro</span>
                 <span className="text-indigo-400 font-semibold">Expert</span>
               </div>
             </div>
 
-            {/* Model 3: gemini-3.1-flash-lite */}
+            {/* Model 3: gemini-2.0-flash */}
             <div
-              onClick={() => setDefaultModel('gemini-3.1-flash-lite')}
+              onClick={() => setDefaultModel('gemini-2.0-flash')}
               className={`cursor-pointer rounded-xl border p-3.5 transition-all flex flex-col justify-between ${
-                defaultModel === 'gemini-3.1-flash-lite'
+                defaultModel === 'gemini-2.0-flash' || defaultModel === 'gemini-3.1-flash-lite'
                   ? 'border-blue-500 bg-blue-950/30 shadow-md shadow-blue-500/10 ring-1 ring-blue-500'
                   : 'border-slate-800 bg-slate-950/70 hover:border-slate-700'
               }`}
@@ -267,7 +267,7 @@ export const AssistantSettingsView: React.FC<AssistantSettingsViewProps> = ({
                   <input
                     type="radio"
                     name="geminiModel"
-                    checked={defaultModel === 'gemini-3.1-flash-lite'}
+                    checked={defaultModel === 'gemini-2.0-flash' || defaultModel === 'gemini-3.1-flash-lite'}
                     onChange={() => setDefaultModel('gemini-3.1-flash-lite')}
                     className="h-3.5 w-3.5 text-blue-500"
                   />

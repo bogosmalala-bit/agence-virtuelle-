@@ -107,12 +107,32 @@ async function processIncomingMessengerMessage(
     if (conv.status === 'HANDOFF_HUMAN') {
       saveDb();
       console.log(`[MESSENGER] Conversation ${conv.id} is in HANDOFF status.`);
+      db.webhookLogs.unshift({
+        id: `wh_${Date.now()}`,
+        event_type: 'messages',
+        sender_id: senderId,
+        sender_name: conv.customer_name,
+        payload_summary: `Message: "${messageText.slice(0, 80)}"`,
+        action_taken: 'Conversation en mode Opérateur Humain (IA en pause). Pour réactiver l\'IA, remettez le statut sur BOT_ACTIVE.',
+        timestamp: new Date().toISOString(),
+        status: 'IGNORED',
+      });
       return;
     }
 
     if (!db.assistantSettings.is_active) {
       saveDb();
       console.log('[MESSENGER] Assistant is inactive in settings.');
+      db.webhookLogs.unshift({
+        id: `wh_${Date.now()}`,
+        event_type: 'messages',
+        sender_id: senderId,
+        sender_name: conv.customer_name,
+        payload_summary: `Message: "${messageText.slice(0, 80)}"`,
+        action_taken: 'Assistante IA désactivée dans les paramètres de la plateforme.',
+        timestamp: new Date().toISOString(),
+        status: 'IGNORED',
+      });
       return;
     }
 
@@ -405,10 +425,20 @@ Générez une réponse courte, polie et vendeuse au format JSON :
       for (const entry of body.entry || []) {
         const pageId = entry.id;
 
-        // Handle Messenger Messages
-        for (const messagingEvent of entry.messaging || []) {
+        // Handle Messenger Messages (messaging array & standby array)
+        const messagingList = [
+          ...(entry.messaging || []),
+          ...(entry.standby || []),
+        ];
+
+        for (const messagingEvent of messagingList) {
           const senderId = messagingEvent.sender?.id;
-          const messageText = messagingEvent.message?.text;
+          const messageText =
+            messagingEvent.message?.text ||
+            messagingEvent.postback?.title ||
+            messagingEvent.postback?.payload ||
+            messagingEvent.message?.quick_reply?.payload ||
+            (messagingEvent.message?.attachments ? 'Photo / Pièce jointe reçue' : undefined);
           const isEcho = messagingEvent.message?.is_echo;
 
           // Ignore echo messages sent by the page itself
@@ -417,8 +447,8 @@ Générez une réponse courte, polie et vendeuse au format JSON :
               id: `wh_${Date.now()}`,
               event_type: 'messages',
               sender_id: senderId,
-              payload_summary: `Message: "${messageText.slice(0, 80)}"`,
-              action_taken: 'Message routé vers l\'IA et réponse envoyée sur Messenger',
+              payload_summary: `Message Messenger reçu: "${messageText.slice(0, 80)}"`,
+              action_taken: 'Message routé vers l\'IA pour traitement et réponse automatique sur Messenger',
               timestamp: new Date().toISOString(),
               status: 'SUCCESS',
             });

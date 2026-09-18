@@ -119,19 +119,34 @@ export async function sendFacebookMessage(
         };
       }
 
-      // Try sending with /me/messages or /{page_id}/messages
-      const cleanPageId = (pageId || '').replace(/^page_/, '');
-      const endpoint = cleanPageId && /^\d+$/.test(cleanPageId)
-        ? `${META_GRAPH_BASE}/${cleanPageId}/messages?access_token=${token}`
-        : `${META_GRAPH_BASE}/me/messages?access_token=${token}`;
+      // Meta Send API strictly uses /me/messages with Page Access Token
+      const endpoint = `${META_GRAPH_BASE}/me/messages?access_token=${token}`;
 
-      const response = await fetch(endpoint, {
+      let response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      let data = await response.json();
+
+      // If /me/messages fails and cleanPageId is numeric, try /{page_id}/messages as secondary fallback
+      const cleanPageId = (pageId || '').replace(/^page_/, '');
+      if ((!response.ok || data.error) && cleanPageId && /^\d+$/.test(cleanPageId)) {
+        console.warn('[META GRAPH /me/messages FAILED, RETRYING WITH PAGE ID ENDPOINT]', data?.error?.message);
+        const fallbackEndpoint = `${META_GRAPH_BASE}/${cleanPageId}/messages?access_token=${token}`;
+        const fallbackRes = await fetch(fallbackEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const fallbackData = await fallbackRes.json();
+        if (fallbackRes.ok && !fallbackData.error) {
+          response = fallbackRes;
+          data = fallbackData;
+        }
+      }
+
       if (!response.ok || data.error) {
         console.error('[META GRAPH API MESSENGER ERROR]', data);
         return {

@@ -149,10 +149,26 @@ export async function generateContentWithRotation(
     });
   }
 
-  // Fallback if no specific keys configured: try process.env.GEMINI_API_KEY directly
+  function normalizeModelName(modelName?: string): string {
+  if (!modelName) return 'gemini-2.5-flash';
+  const m = modelName.trim().toLowerCase();
+  if (
+    m === 'gemini-2.5-flash' ||
+    m === 'gemini-2.5-pro' ||
+    m === 'gemini-2.0-flash' ||
+    m === 'gemini-1.5-flash' ||
+    m === 'gemini-1.5-pro'
+  ) {
+    return m;
+  }
+  if (m.includes('pro')) return 'gemini-2.5-pro';
+  return 'gemini-2.5-flash';
+}
+
+// Fallback if no specific keys configured: try process.env.GEMINI_API_KEY directly
   if (activeKeys.length === 0) {
     if (process.env.GEMINI_API_KEY) {
-      const defaultModel = preferredModel || db.assistantSettings.default_model || 'gemini-3.8-flash';
+      const defaultModel = normalizeModelName(preferredModel || db.assistantSettings.default_model);
       const ai = new GoogleGenAI({
         apiKey: process.env.GEMINI_API_KEY,
         httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
@@ -207,18 +223,10 @@ export async function generateContentWithRotation(
       }
 
       // Determine model to use for this slot with safe normalization
-      let modelToUse = preferredModel || keyConfig.model || db.assistantSettings.default_model || 'gemini-3.8-flash';
-      // Normalize deprecated / invalid model names to approved standard models
-      if (
-        modelToUse.includes('3.7') ||
-        modelToUse.includes('1.5') ||
-        modelToUse.includes('2.0') ||
-        modelToUse === 'gemini-3.5-transcribe'
-      ) {
-        modelToUse = 'gemini-3.8-flash';
-      }
+      const rawModelSetting = preferredModel || keyConfig.model || db.assistantSettings.default_model;
+      const modelToUse = normalizeModelName(rawModelSetting);
 
-      const candidateModels = [modelToUse, 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      const candidateModels = Array.from(new Set([modelToUse, 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']));
       let responseText = '';
       let successfulModel = modelToUse;
       let modelErr: any = null;

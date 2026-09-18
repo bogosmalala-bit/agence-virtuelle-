@@ -72,7 +72,7 @@ export const db: DatabaseSchema = {
     name: 'Sarah',
     avatar_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&h=200&q=80',
     is_active: true,
-    default_model: 'gemini-3.8-flash',
+    default_model: 'gemini-2.5-flash',
     assistance_type: 'VENTE', // 'VENTE' ou 'TRAVAIL'
     tone: 'Commercial', // 'Professionnel' | 'Amical' | 'Commercial' | 'Simple'
     primary_language: 'Français', // 'Français' | 'Malagasy' | 'Bilingue (FR/MG)'
