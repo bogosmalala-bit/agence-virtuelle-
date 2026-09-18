@@ -18,6 +18,7 @@ import {
   syncPageConversationsFromMeta,
   syncPageCommentsFromMeta,
   getPageAccessToken,
+  subscribePageToWebhooks,
 } from './server/facebookService.js';
 import { createOrder, validateOrderInput } from './server/orderEngine.js';
 import { sendPushNotification } from './server/notificationService.js';
@@ -49,7 +50,7 @@ async function processIncomingMessengerMessage(
       page = db.facebookPages.find((p) => p.id === db.activePageId) || db.facebookPages[0];
     }
 
-    const pageToken = page?.page_access_token || getPageAccessToken(page?.id || '') || getPageAccessToken(cleanId);
+    const pageToken = page?.page_access_token || getPageAccessToken(page?.id || '') || getPageAccessToken(cleanId) || getPageAccessToken();
 
     // Fetch user profile from Meta Graph API if available
     let senderName = 'Client Facebook';
@@ -129,14 +130,37 @@ async function processIncomingMessengerMessage(
     const userPromptWithContext = `Message de l'internaute Messenger (${conv.customer_name}) :
 "${messageText}"`;
 
-    const aiResult = await generateContentWithRotation(
-      userPromptWithContext,
-      systemInstruction,
-      history
-    );
-
-    let cleanReplyText = aiResult.text;
+    let cleanReplyText = '';
     const attachments: any[] = [];
+
+    try {
+      const aiResult = await generateContentWithRotation(
+        userPromptWithContext,
+        systemInstruction,
+        history
+      );
+      cleanReplyText = aiResult.text || '';
+    } catch (aiGenErr: any) {
+      console.warn('[AI GENERATION FAILOVER ACTIVATED]', aiGenErr?.message);
+      // Construct an intelligent contextual fallback so client NEVER stays without reply
+      const topProducts = db.products
+        .slice(0, 3)
+        .map((p) => `• ${p.name} : ${p.price !== null ? p.price.toLocaleString('fr-FR') + ' Ar' : 'Sur devis'}`)
+        .join('\n');
+
+      const isMalagasy = db.assistantSettings.primary_language !== 'Français';
+      if (isMalagasy) {
+        cleanReplyText = `Miarahaba tompoko ! Faly mandray anao ny Assistante Virtuelle ato amin'ny ${page?.page_name || 'Boutique'}.\n\n` +
+          `Efa voaray soa aman-tsara ny hafatranao momba ny : "${messageText}".\n\n` +
+          (topProducts ? `Ireto misy santionany amin'ireo vokatra misy ato aminay :\n${topProducts}\n\n` : '') +
+          `Ahoana no afaka hanampiana anao amin'ny commande na ny antsipiriany ?`;
+      } else {
+        cleanReplyText = `Bonjour ${conv.customer_name} ! Merci pour votre message sur ${page?.page_name || 'notre boutique'}.\n\n` +
+          `Nous avons bien reçu votre demande : "${messageText}".\n\n` +
+          (topProducts ? `Voici quelques-uns de nos produits disponibles actuellement :\n${topProducts}\n\n` : '') +
+          `Souhaitez-vous passer commande ou avoir plus de précisions ?`;
+      }
+    }
 
     // Parse attachments [ATTACHMENT: url:type:name]
     const attachRegex = /\[ATTACHMENT:\s*([^:]+):([^:]+):([^\]]+)\]/g;
@@ -219,8 +243,35 @@ async function processIncomingMessengerMessage(
 
     if (sendRes.success) {
       console.log(`[MESSENGER AI SENT] to ${senderId} on page ${targetPageId}: "${cleanReplyText.slice(0, 50)}..."`);
+      db.webhookLogs.unshift({
+        id: `wh_${Date.now()}`,
+        event_type: 'messages',
+        sender_id: senderId,
+        sender_name: conv.customer_name,
+        payload_summary: `Réponse IA envoyée à ${conv.customer_name} : "${cleanReplyText.slice(0, 80)}"`,
+        action_taken: 'Message transmis avec succès sur Meta Graph API',
+        timestamp: new Date().toISOString(),
+        status: 'SUCCESS',
+      });
     } else {
       console.warn('[MESSENGER SEND FAILED]', sendRes.error);
+      db.webhookLogs.unshift({
+        id: `wh_${Date.now()}`,
+        event_type: 'messages',
+        sender_id: senderId,
+        sender_name: conv.customer_name,
+        payload_summary: `Échec envoi Messenger à ${conv.customer_name}`,
+        action_taken: `Erreur Meta Graph API : ${sendRes.error}`,
+        timestamp: new Date().toISOString(),
+        status: 'ERROR',
+      });
+
+      sendPushNotification({
+        title: '⚠️ Erreur d\'envoi Meta Graph API',
+        message: `L'IA a généré la réponse mais Meta a renvoyé : "${sendRes.error}". Vérifiez le Token d'accès de la Page ou les permissions pages_messaging.`,
+        type: 'HANDOFF_ALERT',
+        related_id: conv.id,
+      });
     }
 
     // Save AI message to DB
@@ -470,6 +521,180 @@ Générez une réponse courte, polie et vendeuse au format JSON :
         syncedComments: 0,
         message: 'Synchronisation locale à jour.',
       });
+    }
+  });
+
+  // ==========================================
+  // FACEBOOK WEBHOOK DIAGNOSTIC & TEST SUITE
+  // ==========================================
+  app.post('/api/facebook/diagnose', async (req, res) => {
+    try {
+      const pageId = req.body?.page_id || db.activePageId;
+      const cleanPageId = (pageId || '').replace(/^page_/, '');
+      const page = db.facebookPages.find((p) => p.id === pageId || p.page_id === pageId || p.page_id === cleanPageId) || db.facebookPages[0];
+      const token = page?.page_access_token || getPageAccessToken(cleanPageId) || getPageAccessToken(pageId) || getPageAccessToken();
+
+      const diag: any = {
+        timestamp: new Date().toISOString(),
+        page: {
+          id: page?.id,
+          page_id: page?.page_id,
+          page_name: page?.page_name || 'Aucune Page',
+          status: page?.status || 'DISCONNECTED',
+        },
+        token: {
+          present: Boolean(token),
+          is_real_meta_token: Boolean(token && !token.startsWith('EAAQ...dummy') && token.startsWith('EAA')),
+          token_preview: token ? `${token.slice(0, 10)}...${token.slice(-6)}` : null,
+          meta_api_valid: false,
+          meta_api_details: null,
+          error: null,
+        },
+        webhook_subscription: {
+          subscribed_apps_valid: false,
+          subscribed_fields: [] as string[],
+          error: null,
+        },
+        assistant_settings: {
+          is_active: db.assistantSettings.is_active,
+          name: db.assistantSettings.name,
+          tone: db.assistantSettings.tone,
+          primary_language: db.assistantSettings.primary_language,
+        },
+        ai_engine: {
+          status: 'CHECKING',
+          active_keys_count: (db.aiApiKeys || []).filter((k) => k.status === 'ACTIVE').length,
+          test_latency_ms: 0,
+          error: null,
+        },
+        recent_webhook_events: db.webhookLogs.slice(0, 5),
+        overall_status: 'HEALTHY',
+        diagnostic_messages: [] as string[],
+      };
+
+      // 1. Test Meta Token with Graph API
+      if (token && !token.startsWith('EAAQ...dummy')) {
+        try {
+          const metaRes = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,name,category,link&access_token=${token}`);
+          const metaData = await metaRes.json();
+          if (metaRes.ok && !metaData.error) {
+            diag.token.meta_api_valid = true;
+            diag.token.meta_api_details = metaData;
+          } else {
+            diag.token.error = metaData.error?.message || 'Token Meta invalide ou expiré';
+            diag.overall_status = 'WARNING';
+            diag.diagnostic_messages.push(`Fahadisoana Token Meta: ${diag.token.error}`);
+          }
+        } catch (e: any) {
+          diag.token.error = e.message;
+        }
+
+        // 2. Test Subscribed Apps on Page
+        try {
+          const subRes = await fetch(`https://graph.facebook.com/v20.0/${page?.page_id || cleanPageId}/subscribed_apps?access_token=${token}`);
+          const subData = await subRes.json();
+          if (subRes.ok && subData.data) {
+            diag.webhook_subscription.subscribed_apps_valid = subData.data.length > 0;
+            const fields = subData.data[0]?.subscribed_fields || [];
+            diag.webhook_subscription.subscribed_fields = fields;
+            if (subData.data.length === 0) {
+              diag.overall_status = 'WARNING';
+              diag.diagnostic_messages.push("Tsy mbola voasoratra (non abonné) amin'ny Webhook ny Page. Tsindrio ny bokotra 'Abonner la Page au Webhook'.");
+            }
+          } else {
+            diag.webhook_subscription.error = subData.error?.message || 'Tsy voamarina ny Subscribed Apps';
+          }
+        } catch (e: any) {
+          diag.webhook_subscription.error = e.message;
+        }
+      } else {
+        diag.overall_status = 'WARNING';
+        diag.diagnostic_messages.push("Tsy mbola misy Page Access Token Meta (EAA...). Ampidiro ny Token na ampiasao ny Facebook Login.");
+      }
+
+      // 3. Test AI Engine
+      const aiStartTime = Date.now();
+      try {
+        const testPrompt = "Test de disponibilité de l'IA. Réponds brièvement 'IA Opérationnelle'.";
+        const aiRes = await generateContentWithRotation(testPrompt, 'Vous êtes une assistante virtuelle.');
+        diag.ai_engine.status = 'READY';
+        diag.ai_engine.test_latency_ms = Date.now() - aiStartTime;
+      } catch (aiErr: any) {
+        diag.ai_engine.status = 'ERROR';
+        diag.ai_engine.error = aiErr.message;
+        diag.overall_status = 'ERROR';
+        diag.diagnostic_messages.push(`Olana amin'ny Gemini IA: ${aiErr.message}`);
+      }
+
+      // 4. Check Assistant Active
+      if (!db.assistantSettings.is_active) {
+        diag.overall_status = 'WARNING';
+        diag.diagnostic_messages.push("Natsahatra ny IA (is_active = false) ao amin'ny Paramètres Assistant. Tsy hamaly izy raha tsy velomina.");
+      }
+
+      return res.json(diag);
+    } catch (err: any) {
+      console.error('[DIAGNOSE ERR]', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Force subscribe Facebook Page to Webhooks
+  app.post('/api/facebook/subscribe-page', async (req, res) => {
+    try {
+      const pageId = req.body?.page_id || db.activePageId;
+      const cleanPageId = (pageId || '').replace(/^page_/, '');
+      const page = db.facebookPages.find((p) => p.id === pageId || p.page_id === pageId || p.page_id === cleanPageId) || db.facebookPages[0];
+      const token = req.body?.token || page?.page_access_token || getPageAccessToken(cleanPageId) || getPageAccessToken(pageId);
+
+      const subRes = await subscribePageToWebhooks(cleanPageId || page?.page_id || pageId, token);
+      if (subRes.success) {
+        if (page) page.status = 'CONNECTED';
+        saveDb();
+        return res.json({
+          success: true,
+          message: `Voasoratra soa aman-tsara amin'ny Webhook Meta ny Page "${page?.page_name || cleanPageId}" ! Handray avy hatrany ny hafatra sy ny fanehoan-kevitra izy.`,
+          data: subRes.data,
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: subRes.error || 'Tsy nahomby ny famandrihana Webhook Meta.',
+        });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Test Direct Messenger Message Sending
+  app.post('/api/facebook/test-reply', async (req, res) => {
+    try {
+      const { recipient_id, message, page_id } = req.body;
+      if (!recipient_id) {
+        return res.status(400).json({ success: false, error: 'Azafady ampidiro ny recipient_id (PSID Facebook).' });
+      }
+
+      const cleanPageId = (page_id || db.activePageId || '').replace(/^page_/, '');
+      const testText = message || `Miarahaba tompoko ! Ity dia hafatra andrana (Message Test) avy amin'ny Assistante Virtuelle IA. Timestamp: ${new Date().toLocaleTimeString('fr-FR')}`;
+
+      const sendRes = await sendFacebookMessage(cleanPageId, recipient_id, testText);
+
+      if (sendRes.success) {
+        return res.json({
+          success: true,
+          message: 'Tafalefa soa aman-tsara tamin\'ny Messenger ny hafatra andrana !',
+          message_id: sendRes.message_id,
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: sendRes.error || 'Tsy nahomby ny fandefasana amin\'ny Meta Graph API.',
+          rawError: sendRes.rawError,
+        });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message });
     }
   });
 

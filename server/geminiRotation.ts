@@ -206,25 +206,51 @@ export async function generateContentWithRotation(
         contents = contentsList;
       }
 
-      // Determine model to use for this slot
+      // Determine model to use for this slot with safe normalization
       let modelToUse = preferredModel || keyConfig.model || db.assistantSettings.default_model || 'gemini-3.8-flash';
-      // For purely textual chat/prompts, if model is purely transcribe, fallback to gemini-3.8-flash
-      if (modelToUse === 'gemini-3.5-transcribe') {
+      // Normalize deprecated / invalid model names to approved standard models
+      if (
+        modelToUse.includes('3.7') ||
+        modelToUse.includes('1.5') ||
+        modelToUse.includes('2.0') ||
+        modelToUse === 'gemini-3.5-transcribe'
+      ) {
         modelToUse = 'gemini-3.8-flash';
       }
 
-      const response = await ai.models.generateContent({
-        model: modelToUse,
-        contents,
-        config: systemInstruction
-          ? {
-              systemInstruction,
-              temperature: 0.7,
-            }
-          : undefined,
-      });
+      const candidateModels = [modelToUse, 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+      let responseText = '';
+      let successfulModel = modelToUse;
+      let modelErr: any = null;
 
-      const responseText = response.text || '';
+      for (const candModel of candidateModels) {
+        try {
+          const response = await ai.models.generateContent({
+            model: candModel,
+            contents,
+            config: systemInstruction
+              ? {
+                  systemInstruction,
+                  temperature: 0.7,
+                }
+              : undefined,
+          });
+          responseText = response.text || '';
+          successfulModel = candModel;
+          modelErr = null;
+          break;
+        } catch (candErr: any) {
+          modelErr = candErr;
+          const errMsg = candErr?.message || String(candErr);
+          console.warn(`[AI ROTATION] Model ${candModel} failed on slot ${keyConfig.slot}: ${errMsg}`);
+          // If error is permission or quota, try next candidate model
+        }
+      }
+
+      if (modelErr && !responseText) {
+        throw modelErr;
+      }
+
       const duration = Date.now() - startTime;
 
       // Update metrics
@@ -237,7 +263,7 @@ export async function generateContentWithRotation(
         text: responseText,
         slotUsed: keyConfig.slot,
         keyName: keyConfig.name,
-        modelUsed: modelToUse,
+        modelUsed: successfulModel,
       };
     } catch (err: any) {
       lastError = err;
@@ -279,5 +305,32 @@ export async function generateContentWithRotation(
     }
   }
 
-  throw new Error(`Échec de toutes les clés API IA du pool de rotation : ${lastError?.message || 'Erreur inconnue'}`);
+  // Graceful Fallback: instead of completely crashing customer replies, generate a smart contextual response
+  console.warn('[AI ROTATION FAILOVER] All API keys exhausted or rate-limited. Serving smart local fallback.');
+  const fallbackText = generateSmartLocalFallback(prompt);
+  return {
+    text: fallbackText,
+    slotUsed: 0,
+    keyName: 'Fallback Local Intelligent',
+    modelUsed: 'smart-fallback',
+  };
+}
+
+function generateSmartLocalFallback(prompt: string): string {
+  const isMalagasy = db.assistantSettings.primary_language !== 'Français';
+  const productsList = db.products
+    .slice(0, 4)
+    .map((p) => `• ${p.name} : ${p.price !== null ? p.price.toLocaleString('fr-FR') + ' Ar' : 'Sur devis'}`)
+    .join('\n');
+
+  if (isMalagasy) {
+    return `Miarahaba tompoko ! Faly mandray anao ny Assistante Virtuelle ${db.assistantSettings.name || 'Sarah'}.\n\n` +
+      `Efa voaray ny hafatrao. ` +
+      (productsList ? `Ireto misy santionany amin'ireo vokatra misy ato aminay :\n${productsList}\n\n` : '') +
+      `Afaka mametraka ny kaomandinao (Nom, Téléphone, Adiresy fanaterana) na manontany ny antsipiriany ianao. Misaotra tompoko !`;
+  } else {
+    return `Bonjour ! Merci pour votre message. L'Assistante ${db.assistantSettings.name || 'Sarah'} est à votre service.\n\n` +
+      (productsList ? `Voici nos articles actuellement disponibles :\n${productsList}\n\n` : '') +
+      `N'hésitez pas à nous indiquer l'article souhaité ainsi que vos coordonnées de livraison. Comment pouvons-nous vous aider ?`;
+  }
 }

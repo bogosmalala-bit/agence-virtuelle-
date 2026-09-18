@@ -18,6 +18,13 @@ import {
   Info,
   Trash2,
   Flame,
+  Activity,
+  Send,
+  Terminal,
+  Cpu,
+  Wifi,
+  XCircle,
+  Check,
 } from 'lucide-react';
 import { FacebookPage } from '../types.js';
 import { localPersistence } from '../lib/storage.js';
@@ -60,6 +67,16 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   const [appConfigStatus, setAppConfigStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<'vercel' | 'current' | 'custom'>('vercel');
   const [customDomainInput, setCustomDomainInput] = useState<string>('https://agence-virtuelle.vercel.app');
+
+  // Diagnostic & Live Messenger Test Suite State
+  const [diagnosticData, setDiagnosticData] = useState<any>(null);
+  const [isRunningDiag, setIsRunningDiag] = useState<boolean>(false);
+  const [isSubscribingWebhook, setIsSubscribingWebhook] = useState<boolean>(false);
+  const [subscribeStatus, setSubscribeStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [testRecipientId, setTestRecipientId] = useState<string>('');
+  const [testMessageText, setTestMessageText] = useState<string>('');
+  const [isSendingTestMsg, setIsSendingTestMsg] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://agence-virtuelle.vercel.app';
   
@@ -211,6 +228,95 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
       });
     } finally {
       setIsSavingAppConfig(false);
+    }
+  };
+
+  const handleRunDiagnostic = async () => {
+    setIsRunningDiag(true);
+    try {
+      const res = await fetch('/api/facebook/diagnose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page_id: activePage?.id || activePage?.page_id }),
+      });
+      const data = await res.json();
+      setDiagnosticData(data);
+    } catch (err: any) {
+      setDiagnosticData({
+        overall_status: 'ERROR',
+        diagnostic_messages: [`Tsy afaka nanao diagnostic: ${err.message}`],
+      });
+    } finally {
+      setIsRunningDiag(false);
+    }
+  };
+
+  const handleForceSubscribeWebhook = async () => {
+    setIsSubscribingWebhook(true);
+    setSubscribeStatus(null);
+    try {
+      const res = await fetch('/api/facebook/subscribe-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page_id: activePage?.id || activePage?.page_id }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSubscribeStatus({
+          type: 'success',
+          text: data.message || 'Voasoratra soa aman-tsara amin\'ny Webhook Meta ny Page !',
+        });
+        handleRunDiagnostic();
+      } else {
+        setSubscribeStatus({
+          type: 'error',
+          text: data.error || 'Nisy olana teo am-pandefasana ny famandrihana Webhook.',
+        });
+      }
+    } catch (err: any) {
+      setSubscribeStatus({
+        type: 'error',
+        text: `Fahadisoana: ${err.message}`,
+      });
+    } finally {
+      setIsSubscribingWebhook(false);
+    }
+  };
+
+  const handleSendTestMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testRecipientId.trim()) return;
+    setIsSendingTestMsg(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/facebook/test-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          page_id: activePage?.id || activePage?.page_id,
+          recipient_id: testRecipientId.trim(),
+          message: testMessageText.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestResult({
+          type: 'success',
+          text: `Tafalefa soa aman-tsara any amin'ny Messenger (ID: ${data.message_id}) !`,
+        });
+      } else {
+        setTestResult({
+          type: 'error',
+          text: `Tsy nahomby: ${data.error || 'Erreur Meta'}`,
+        });
+      }
+    } catch (err: any) {
+      setTestResult({
+        type: 'error',
+        text: `Fahadisoana: ${err.message}`,
+      });
+    } finally {
+      setIsSendingTestMsg(false);
     }
   };
 
@@ -482,6 +588,227 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
             <span className="text-slate-400 block text-[10px]">⚡ Fampifandraisana :</span>
             <span className="font-bold text-blue-400">Popup & Token Direct</span>
           </div>
+        </div>
+      </div>
+
+      {/* Diagnostic & Live Messenger Test Center */}
+      <div className="rounded-2xl border-2 border-cyan-500/40 bg-gradient-to-br from-slate-900 via-cyan-950/30 to-slate-900 p-5 space-y-5 shadow-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-cyan-500/20 pb-4 gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-400 shadow-lg shadow-cyan-500/20">
+              <Activity className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>🔍 Diagnostic & Fanaraha-maso ny IA Messenger</span>
+                <span className="rounded-full bg-cyan-500/20 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-bold text-cyan-300">
+                  Live Test
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Jereo amin'ny tsindry 1 monja raha mandray hafatra sy mamaly tsara ny Assistante IA amin'ny Messenger.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRunDiagnostic}
+              disabled={isRunningDiag}
+              className="flex items-center gap-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-cyan-600/30 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRunningDiag ? 'animate-spin' : ''}`} />
+              <span>{isRunningDiag ? 'Eo am-panamarinana...' : 'Manao Diagnostic Ankehitriny'}</span>
+            </button>
+            <button
+              onClick={handleForceSubscribeWebhook}
+              disabled={isSubscribingWebhook}
+              className="flex items-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-950/50 hover:bg-cyan-900/50 px-3.5 py-2.5 text-xs font-bold text-cyan-300 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              title="Abonner la Page Facebook aux Webhooks Meta"
+            >
+              <Zap className={`h-4 w-4 text-cyan-400 ${isSubscribingWebhook ? 'animate-pulse' : ''}`} />
+              <span>{isSubscribingWebhook ? 'Eo am-pandefasana...' : 'Abonner au Webhook'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Subscribe status banner if any */}
+        {subscribeStatus && (
+          <div
+            className={`rounded-xl p-3 text-xs flex items-center gap-2.5 border ${
+              subscribeStatus.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+            }`}
+          >
+            {subscribeStatus.type === 'success' ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+            )}
+            <span>{subscribeStatus.text}</span>
+          </div>
+        )}
+
+        {/* Diagnostic Results Panel */}
+        {diagnosticData ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* 1. Page Status */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">1. Page Facebook</span>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                </div>
+                <div className="text-xs font-bold text-white truncate">
+                  {diagnosticData.page?.page_name || 'Aucune Page'}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  ID: {diagnosticData.page?.page_id || diagnosticData.page?.id || 'N/A'}
+                </div>
+              </div>
+
+              {/* 2. Token Status */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">2. Token Meta</span>
+                  {diagnosticData.token?.meta_api_valid ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  )}
+                </div>
+                <div className="text-xs font-bold text-white">
+                  {diagnosticData.token?.meta_api_valid
+                    ? 'Valide sur Graph API'
+                    : diagnosticData.token?.present
+                    ? 'Présent (Non vérifié)'
+                    : 'Manquant'}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono truncate">
+                  {diagnosticData.token?.token_preview || 'Tsy misy Token'}
+                </div>
+              </div>
+
+              {/* 3. Webhook Subscribed */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">3. Webhook Subscribed</span>
+                  {diagnosticData.webhook_subscription?.subscribed_apps_valid ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  )}
+                </div>
+                <div className="text-xs font-bold text-white">
+                  {diagnosticData.webhook_subscription?.subscribed_apps_valid
+                    ? 'Abonné aux Messages'
+                    : 'Non Abonné'}
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">
+                  Fields: {diagnosticData.webhook_subscription?.subscribed_fields?.join(', ') || 'N/A'}
+                </div>
+              </div>
+
+              {/* 4. AI Engine */}
+              <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">4. Moteur IA Gemini</span>
+                  {diagnosticData.ai_engine?.status === 'READY' ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                  ) : (
+                    <XCircle className="h-4 w-4 text-rose-400" />
+                  )}
+                </div>
+                <div className="text-xs font-bold text-white">
+                  {diagnosticData.ai_engine?.status === 'READY'
+                    ? `Opérationnel (${diagnosticData.ai_engine?.test_latency_ms}ms)`
+                    : 'Erreur'}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  {diagnosticData.assistant_settings?.is_active
+                    ? `IA Active (${diagnosticData.assistant_settings?.name})`
+                    : '⚠️ IA Désactivée'}
+                </div>
+              </div>
+            </div>
+
+            {/* Diagnostic Alert Messages */}
+            {diagnosticData.diagnostic_messages?.length > 0 && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-950/40 p-3 text-xs text-amber-200 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                  <AlertTriangle className="h-4 w-4 text-amber-400" />
+                  Torohevitra sy fanitsiana tokony hatao :
+                </div>
+                <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-amber-200/90">
+                  {diagnosticData.diagnostic_messages.map((msg: string, idx: number) => (
+                    <li key={idx}>{msg}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-cyan-500/30 bg-cyan-950/20 p-4 text-center">
+            <p className="text-xs text-slate-300">
+              Tsindrio ny bokotra <strong>"Manao Diagnostic Ankehitriny"</strong> eo ambony mba hanamarinana avy hatrany ny Token, ny Webhook ary ny fiasan'ny IA.
+            </p>
+          </div>
+        )}
+
+        {/* Live Messenger Test Message Form */}
+        <div className="rounded-xl border border-slate-800/80 bg-slate-950/60 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Send className="h-4 w-4 text-cyan-400" />
+            <h4 className="text-xs font-bold text-white">
+              Handefa Hafatra Andrana mivantana any amin'ny Messenger (Test d'envoi en direct)
+            </h4>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Ampidiro ny PSID (Page-Scoped ID) an'ny mpampiasa Facebook iray efa nandefa hafatra tamin'ny Page mba handefasana hafatra andrana mivantana.
+          </p>
+
+          <form onSubmit={handleSendTestMessage} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <input
+              type="text"
+              value={testRecipientId}
+              onChange={(e) => setTestRecipientId(e.target.value)}
+              placeholder="PSID Recipient ID (ex: 839201948572019)"
+              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+            />
+            <input
+              type="text"
+              value={testMessageText}
+              onChange={(e) => setTestMessageText(e.target.value)}
+              placeholder="Hafatra andrana (Optionnel)"
+              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={isSendingTestMsg || !testRecipientId.trim()}
+              className="flex items-center justify-center gap-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 px-4 py-2 text-xs font-bold text-white shadow-md shadow-cyan-600/30 transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>{isSendingTestMsg ? 'Eo am-pandefasana...' : 'Alefaso ny Hafatra Test'}</span>
+            </button>
+          </form>
+
+          {testResult && (
+            <div
+              className={`rounded-xl p-3 text-xs flex items-center gap-2 border ${
+                testResult.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                  : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+              }`}
+            >
+              {testResult.type === 'success' ? (
+                <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+              )}
+              <span>{testResult.text}</span>
+            </div>
+          )}
         </div>
       </div>
 

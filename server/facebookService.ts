@@ -14,13 +14,32 @@ export function setPageAccessToken(pageId: string, token: string) {
   pageTokensStore[pageId] = token;
 }
 
-export function getPageAccessToken(pageId: string): string | undefined {
-  if (pageTokensStore[pageId]) return pageTokensStore[pageId];
+export function getPageAccessToken(pageId?: string): string | undefined {
+  if (pageId && pageTokensStore[pageId]) return pageTokensStore[pageId];
   const cleanId = (pageId || '').replace(/^page_/, '');
-  const found = db.facebookPages.find(
-    (p) => p.page_id === pageId || p.page_id === cleanId || p.id === pageId || p.id === `page_${cleanId}`
-  );
-  return found?.page_access_token;
+  
+  if (pageId) {
+    const found = db.facebookPages.find(
+      (p) => p.page_id === pageId || p.page_id === cleanId || p.id === pageId || p.id === `page_${cleanId}`
+    );
+    if (found?.page_access_token) return found.page_access_token;
+  }
+
+  // Fallback to active page
+  const active = db.facebookPages.find((p) => p.id === db.activePageId || p.page_id === db.activePageId);
+  if (active?.page_access_token && !active.page_access_token.startsWith('EAAQ...dummy')) {
+    return active.page_access_token;
+  }
+
+  // Fallback to any real connected page with token
+  const anyReal = db.facebookPages.find((p) => Boolean(p.page_access_token && !p.page_access_token.startsWith('EAAQ...dummy')));
+  if (anyReal?.page_access_token) return anyReal.page_access_token;
+
+  // Fallback to in-memory store any token
+  const firstStoreToken = Object.values(pageTokensStore).find((t) => t && !t.startsWith('EAAQ...dummy'));
+  if (firstStoreToken) return firstStoreToken;
+
+  return undefined;
 }
 
 // Meta Webhook Verification Handler (GET /api/webhooks/facebook)
@@ -36,6 +55,36 @@ export function verifyMetaWebhook(
   return { isValid: false };
 }
 
+// Explicitly Subscribe Facebook Page to Webhook events (subscribed_apps)
+export async function subscribePageToWebhooks(
+  pageId: string,
+  token?: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  const cleanPageId = (pageId || '').replace(/^page_/, '');
+  const pageToken = token || getPageAccessToken(cleanPageId) || getPageAccessToken(pageId);
+
+  if (!pageToken || pageToken.startsWith('EAAQ...dummy')) {
+    return { success: false, error: 'Tsy misy Page Access Token Meta manan-kery.' };
+  }
+
+  try {
+    const fields = 'messages,messaging_postbacks,messaging_optins,message_deliveries,message_reads,feed';
+    const subUrl = `${META_GRAPH_BASE}/${cleanPageId}/subscribed_apps?subscribed_fields=${fields}&access_token=${pageToken}`;
+    const res = await fetch(subUrl, { method: 'POST' });
+    const data = await res.json();
+
+    if (!res.ok || data.error) {
+      console.warn('[SUBSCRIBE APPS META ERROR]', data?.error);
+      return { success: false, error: data?.error?.message || 'Meta API Subscription Error' };
+    }
+
+    return { success: true, data };
+  } catch (err: any) {
+    console.error('[SUBSCRIBE APPS EXCEPTION]', err);
+    return { success: false, error: err.message };
+  }
+}
+
 // Send Facebook Messenger message via Meta Graph API
 export async function sendFacebookMessage(
   pageId: string,
@@ -43,14 +92,15 @@ export async function sendFacebookMessage(
   text: string,
   attachmentUrl?: string,
   attachmentType?: 'image' | 'video' | 'file' | 'audio'
-): Promise<{ success: boolean; message_id?: string; error?: string }> {
+): Promise<{ success: boolean; message_id?: string; error?: string; rawError?: any }> {
   const token = getPageAccessToken(pageId);
 
   // If connected to a real Meta Page Access Token (not dummy)
   if (token && !token.startsWith('EAAQ...dummy')) {
     try {
+      const cleanRecipientId = recipientId.trim();
       const payload: any = {
-        recipient: { id: recipientId },
+        recipient: { id: cleanRecipientId },
         message: { text },
         messaging_type: 'RESPONSE',
       };
@@ -65,21 +115,31 @@ export async function sendFacebookMessage(
         };
       }
 
-      const response = await fetch(`${META_GRAPH_BASE}/me/messages?access_token=${token}`, {
+      // Try sending with /me/messages or /{page_id}/messages
+      const cleanPageId = (pageId || '').replace(/^page_/, '');
+      const endpoint = cleanPageId && /^\d+$/.test(cleanPageId)
+        ? `${META_GRAPH_BASE}/${cleanPageId}/messages?access_token=${token}`
+        : `${META_GRAPH_BASE}/me/messages?access_token=${token}`;
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
 
       const data = await response.json();
-      if (!response.ok) {
-        console.error('[META GRAPH API ERROR]', data);
-        return { success: false, error: data?.error?.message || 'Meta API Error' };
+      if (!response.ok || data.error) {
+        console.error('[META GRAPH API MESSENGER ERROR]', data);
+        return {
+          success: false,
+          error: data?.error?.message || `Meta API Error (${response.status})`,
+          rawError: data?.error,
+        };
       }
 
-      return { success: true, message_id: data.message_id };
+      return { success: true, message_id: data.message_id || data.recipient_id };
     } catch (err: any) {
-      console.error('[META SEND FAILED]', err);
+      console.error('[META SEND FAILED EXCEPTION]', err);
       return { success: false, error: err.message };
     }
   }
