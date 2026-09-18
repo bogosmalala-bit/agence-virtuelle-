@@ -78,6 +78,7 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   const firebaseAuthHandlerUri = 'https://project-223f4dee-65dd-4c9e-8cc.firebaseapp.com/__/auth/handler';
 
   // Meta Developer Required URLs computed with effective domain
+  const popupCallbackUri = `${effectiveOrigin}/oauth-popup-callback.html`;
   const oauthRedirectUri = `${effectiveOrigin}/api/auth/facebook/callback`;
   const oauthRedirectUriAlt = `${effectiveOrigin}/auth/facebook/callback`;
   const siteUrl = `${effectiveOrigin}/`;
@@ -228,10 +229,10 @@ App Domain (Domaine de l'application) : ${effectiveHost}
 ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
 
 1. FACEBOOK LOGIN > PARAMÈTRES (SETTINGS) :
-- URI de redirection OAuth Firebase Auth (CRITIQUE pour Firebase Facebook Login) :
-  ${firebaseAuthHandlerUri}
-- URI de redirection OAuth valides (Vercel & App) :
+- URI de redirection OAuth valides (Apetaho ao amin'ny Meta) :
+  ${popupCallbackUri}
   ${oauthRedirectUri}
+  ${firebaseAuthHandlerUri}
   ${oauthRedirectUriAlt}
 - URL de rappel de désautorisation :
   ${deauthorizeCallbackUrl}
@@ -651,12 +652,41 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
         </div>
 
         <div className="space-y-3.5 text-xs">
+          {/* Popup Fast Callback URI */}
+          <div className="rounded-xl border border-blue-500/50 bg-blue-950/30 p-3 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-blue-300 flex items-center gap-1.5">
+                <Zap className="h-4 w-4 text-blue-400" />
+                <span>URI de redirection Popup Facebook Login (Tonga dia miasa) :</span>
+                <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/40 font-bold">
+                  Direct Popup
+                </span>
+              </label>
+              <span className="text-[10px] text-blue-300/80 font-semibold">Valid OAuth Redirect URI</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={popupCallbackUri}
+                className="flex-1 rounded-xl border border-blue-500/40 bg-slate-950 px-3.5 py-2 text-blue-200 font-mono text-xs focus:outline-none select-all font-bold"
+              />
+              <button
+                onClick={() => copyToClipboard(popupCallbackUri, 'popup_callback')}
+                className="flex items-center gap-1 rounded-xl border border-blue-500/50 bg-blue-600/30 px-3 py-2 text-xs font-bold text-blue-200 hover:bg-blue-600/50 hover:text-white cursor-pointer"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span>{copiedField === 'popup_callback' ? 'Copié !' : 'Copier'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* CRITICAL Firebase OAuth Handler URI */}
           <div className="rounded-xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/20 p-3.5 space-y-2">
             <div className="flex items-center justify-between">
               <label className="font-bold text-amber-300 flex items-center gap-1.5">
                 <Flame className="h-4 w-4 text-amber-400" />
-                <span>URI de redirection Firebase Auth (TENA ILAY MANAN-DANJA) :</span>
+                <span>URI de redirection Firebase Auth (Handler Firebase) :</span>
                 <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/40 font-bold">
                   Firebase OAuth Handler
                 </span>
