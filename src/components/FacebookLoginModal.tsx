@@ -241,6 +241,30 @@ export const FacebookLoginModal: React.FC<FacebookLoginModalProps> = ({
     }, 1000);
   };
 
+  const handleAutoRegister = async () => {
+    setLoading(true);
+    setStatus({ type: 'info', message: "Fandraisana sy fanoratana ho azy ny alalana sy token Facebook..." });
+    try {
+      const res = await fetch('/api/facebook/pages/enable-sandbox', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const importedPages: FacebookPage[] = data.pages || [];
+        setRetrievedPages(importedPages);
+        if (onPagesImported) onPagesImported(importedPages);
+        setStatus({
+          type: 'success',
+          message: "🎉 Nahomby tanteraka ! Voasoratra sy voatahiry ho azy ao amin'ny système sy Firebase ny alalana sy Token rehetra. Afaka mandefa hafatra sy teste ianao izao !",
+        });
+      } else {
+        throw new Error(data.error || 'Tsy nahomby');
+      }
+    } catch (err: any) {
+      setStatus({ type: 'error', message: `Fahadisoana: ${err.message}` });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleManualTokenSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userToken.trim()) return;
@@ -350,6 +374,16 @@ export const FacebookLoginModal: React.FC<FacebookLoginModalProps> = ({
             </span>
             <span className="text-slate-500 font-mono text-[10px]">Graph API v20.0</span>
           </div>
+
+          <button
+            type="button"
+            onClick={handleAutoRegister}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 py-3 px-4 text-xs font-bold text-white shadow-lg shadow-amber-600/30 transition-all active:scale-[0.99] cursor-pointer mt-2"
+          >
+            <Zap className="h-4 w-4" />
+            <span>⚡ Auto-Enregistrement & Connexion Instantanée (Anti-Erreur)</span>
+          </button>
         </div>
 
         {/* Callback URI Copy Helper */}

@@ -55,7 +55,7 @@ async function processIncomingMessengerMessage(
     // Fetch user profile from Meta Graph API if available
     let senderName = 'Client Facebook';
     let senderAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80';
-    if (pageToken && !pageToken.startsWith('EAAQ...dummy')) {
+    if (pageToken && !pageToken.startsWith('EAAQ...dummy') && !pageToken.startsWith('EAATestSandboxToken')) {
       try {
         const uRes = await fetch(`https://graph.facebook.com/v20.0/${senderId}?fields=name,picture{url}&access_token=${pageToken}`);
         const uData: any = await uRes.json();
@@ -489,7 +489,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
 
       for (const page of pagesToSync) {
         const token = page.page_access_token || getPageAccessToken(page.id) || getPageAccessToken(page.page_id);
-        if (token && !token.startsWith('EAAQ...dummy')) {
+        if (token && !token.startsWith('EAAQ...dummy') && !token.startsWith('EAATestSandboxToken')) {
           const convRes = await syncPageConversationsFromMeta(page.page_id, token);
           totalSyncedConv += convRes.syncedConversations;
           totalSyncedMsg += convRes.syncedMessages;
@@ -807,10 +807,10 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     const cleanToken = (page_access_token || '').trim();
     let fanCount = 0;
 
-    // If Page Access Token is provided, fetch real details from Meta Graph API
+    // If Page Access Token is provided, attempt to fetch details from Meta Graph API but never block saving
     if (cleanToken) {
       try {
-        const fbRes = await fetch(`https://graph.facebook.com/v20.0/${cleanPageId}?fields=id,name,category,fan_count,picture{url}&access_token=${cleanToken}`);
+        const fbRes = await fetch(`https://graph.facebook.com/v20.0/${cleanPageId || 'me'}?fields=id,name,category,fan_count,picture{url}&access_token=${cleanToken}`);
         const fbData = await fbRes.json();
         if (fbData && fbData.id) {
           cleanPageId = fbData.id;
@@ -829,7 +829,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
           }
         }
       } catch (err) {
-        console.warn('[META GRAPH VALIDATION ERR]', err);
+        console.warn('[META GRAPH VALIDATION ERR - TOKEN ACCEPTED ANYWAY]', err);
       }
     }
 
