@@ -378,6 +378,17 @@ export function saveDb(): void {
       activePageId: db.activePageId,
       assistantSettings: db.assistantSettings,
       user: db.user,
+      products: db.products,
+      conversations: db.conversations,
+      messages: db.messages,
+      orders: db.orders,
+      aiApiKeys: db.aiApiKeys,
+      facebookComments: db.facebookComments,
+      moderationRules: db.moderationRules,
+      scheduledPosts: db.scheduledPosts,
+      notifications: db.notifications,
+      audienceInsights: db.audienceInsights,
+      webhookLogs: db.webhookLogs,
     };
     const json = JSON.stringify(payload, null, 2);
     for (const filePath of STORAGE_FILES) {
@@ -417,6 +428,39 @@ export function loadDb(): void {
           }
           if (data.user) {
             db.user = { ...db.user, ...data.user };
+          }
+          if (Array.isArray(data.products)) {
+            db.products = data.products;
+          }
+          if (Array.isArray(data.conversations)) {
+            db.conversations = data.conversations;
+          }
+          if (Array.isArray(data.messages)) {
+            db.messages = data.messages;
+          }
+          if (Array.isArray(data.orders)) {
+            db.orders = data.orders;
+          }
+          if (Array.isArray(data.aiApiKeys)) {
+            db.aiApiKeys = data.aiApiKeys;
+          }
+          if (Array.isArray(data.facebookComments)) {
+            db.facebookComments = data.facebookComments;
+          }
+          if (Array.isArray(data.moderationRules)) {
+            db.moderationRules = data.moderationRules;
+          }
+          if (Array.isArray(data.scheduledPosts)) {
+            db.scheduledPosts = data.scheduledPosts;
+          }
+          if (Array.isArray(data.notifications)) {
+            db.notifications = data.notifications;
+          }
+          if (Array.isArray(data.audienceInsights)) {
+            db.audienceInsights = data.audienceInsights;
+          }
+          if (Array.isArray(data.webhookLogs)) {
+            db.webhookLogs = data.webhookLogs;
           }
           break; // Loaded successfully
         }

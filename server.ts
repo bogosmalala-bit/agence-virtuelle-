@@ -1459,6 +1459,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     };
 
     db.products.unshift(newProduct);
+    saveDb();
     res.status(201).json(newProduct);
   });
 
@@ -1496,6 +1497,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     };
 
     db.products[index] = updated;
+    saveDb();
     res.json(updated);
   });
 
@@ -1506,6 +1508,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
       return res.status(404).json({ error: 'Produit introuvable.' });
     }
     db.products.splice(index, 1);
+    saveDb();
     res.json({ success: true });
   });
 
@@ -1533,6 +1536,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
 
     product.files.push(newFile);
     product.updated_at = new Date().toISOString();
+    saveDb();
     res.status(201).json(newFile);
   });
 
@@ -1544,6 +1548,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     }
     product.files = product.files.filter((f) => f.id !== fileId);
     product.updated_at = new Date().toISOString();
+    saveDb();
     res.json({ success: true });
   });
 
@@ -1896,6 +1901,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     }
     order.updated_at = new Date().toISOString();
 
+    saveDb();
     res.json(order);
   });
 
@@ -2085,6 +2091,7 @@ Renvoyez votre réponse au format JSON strict :
     };
 
     db.moderationRules.push(newRule);
+    saveDb();
     res.status(201).json(newRule);
   });
 
@@ -2092,6 +2099,7 @@ Renvoyez votre réponse au format JSON strict :
     const index = db.moderationRules.findIndex((r) => r.id === req.params.id);
     if (index !== -1) {
       db.moderationRules.splice(index, 1);
+      saveDb();
     }
     res.json({ success: true });
   });
@@ -2139,6 +2147,7 @@ Renvoyez votre réponse au format JSON strict :
     };
 
     db.scheduledPosts.unshift(newPost);
+    saveDb();
     res.status(201).json(newPost);
   });
 
@@ -2162,10 +2171,12 @@ Renvoyez votre réponse au format JSON strict :
         related_id: post.id,
       });
 
+      saveDb();
       return res.json({ success: true, post });
     }
 
     post.status = 'ERREUR';
+    saveDb();
     res.status(500).json({ error: result.error });
   });
 
@@ -2173,6 +2184,7 @@ Renvoyez votre réponse au format JSON strict :
     const index = db.scheduledPosts.findIndex((p) => p.id === req.params.id);
     if (index !== -1) {
       db.scheduledPosts.splice(index, 1);
+      saveDb();
     }
     res.json({ success: true });
   });
@@ -2341,6 +2353,7 @@ Format de réponse JSON attendu :
       ...db.assistantSettings,
       ...update,
     };
+    saveDb();
     res.json(db.assistantSettings);
   });
 
