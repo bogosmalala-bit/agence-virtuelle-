@@ -13,6 +13,7 @@ import { AssistantSettingsView } from './components/AssistantSettingsView.js';
 import { FacebookSettingsView } from './components/FacebookSettingsView.js';
 import { NotificationsView } from './components/NotificationsView.js';
 import { SystemConfigView } from './components/SystemConfigView.js';
+import { localPersistence } from './lib/storage.js';
 import {
   FacebookPage,
   AssistantSettings,
@@ -82,6 +83,19 @@ export function App() {
   // Initial Fetch & Real-Time Sync Loop
   const loadInitialData = async () => {
     try {
+      // 1. Instant local restore so the user NEVER sees an empty screen or lost credentials
+      const localPages = localPersistence.getPages();
+      const localActiveId = localPersistence.getActivePageId();
+      if (localPages && localPages.length > 0) {
+        setPages(localPages);
+        if (localActiveId) {
+          const found = localPages.find((p) => p.id === localActiveId || p.page_id === localActiveId);
+          if (found) setActivePage(found);
+        } else {
+          setActivePage(localPages[0]);
+        }
+      }
+
       const [
         meRes,
         pagesRes,
@@ -112,11 +126,41 @@ export function App() {
 
       if (meRes?.activePage) {
         setActivePage(meRes.activePage);
+        localPersistence.setActivePageId(meRes.activePage.id);
       }
       if (meRes?.assistantSettings) {
         setSettings(meRes.assistantSettings);
       }
-      if (Array.isArray(pagesRes)) setPages(pagesRes);
+      if (Array.isArray(pagesRes)) {
+        // Merge real pages from localStorage if server restarted
+        if (localPages && localPages.length > 0) {
+          const merged = [...localPages.filter((lp) => lp.is_real_page)];
+          for (const sp of pagesRes) {
+            if (!merged.some((m) => m.id === sp.id || m.page_id === sp.page_id)) {
+              merged.push(sp);
+            }
+          }
+          setPages(merged);
+          localPersistence.setPages(merged);
+
+          // Restore to server in background
+          const localAppId = localPersistence.getAppId();
+          const localAppSecret = localPersistence.getAppSecret();
+          fetch('/api/sync/restore-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              meta_app_id: localAppId || undefined,
+              meta_app_secret: localAppSecret || undefined,
+              pages: merged,
+              activePageId: localActiveId || meRes?.activePage?.id,
+            }),
+          }).catch(() => {});
+        } else {
+          setPages(pagesRes);
+          localPersistence.setPages(pagesRes);
+        }
+      }
       if (statsRes && typeof statsRes === 'object' && 'totalConversations' in statsRes) {
         setStats(statsRes);
       }
@@ -208,15 +252,51 @@ export function App() {
   };
 
   const handleSelectPage = async (pageId: string) => {
-    const res = await fetch('/api/facebook/pages/select', {
+    try {
+      const res = await fetch('/api/facebook/pages/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.activePage) {
+        setActivePage(data.activePage);
+        localPersistence.setActivePageId(data.activePage.id);
+      } else {
+        const found = pages.find((p) => p.id === pageId || p.page_id === pageId);
+        if (found) {
+          setActivePage(found);
+          localPersistence.setActivePageId(found.id);
+        }
+      }
+    } catch {
+      const found = pages.find((p) => p.id === pageId || p.page_id === pageId);
+      if (found) {
+        setActivePage(found);
+        localPersistence.setActivePageId(found.id);
+      }
+    }
+  };
+
+  const handleConnectRealPage = async (pageData: any) => {
+    const res = await fetch('/api/facebook/pages/connect-real', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pageId }),
+      body: JSON.stringify(pageData),
     });
     const data = await res.json();
-    if (res.ok) {
-      setActivePage(data.activePage);
+    if (res.ok && data.page) {
+      setPages((prev) => {
+        const filtered = prev.filter((p) => p.page_id !== data.page.page_id && p.id !== data.page.id);
+        const next = [data.page, ...filtered];
+        localPersistence.setPages(next);
+        return next;
+      });
+      setActivePage(data.page);
+      localPersistence.setActivePageId(data.page.id);
+      return data.page;
     }
+    throw new Error(data.error || 'Tsy nahomby ny fampifandraisana ny Page Meta');
   };
 
   const handleConnectNewPage = async (pageData: any) => {
@@ -227,9 +307,71 @@ export function App() {
     });
     const data = await res.json();
     if (res.ok) {
-      setPages((prev) => [...prev, data.page]);
+      setPages((prev) => {
+        const filtered = prev.filter((p) => p.page_id !== data.page.page_id && p.id !== data.page.id);
+        const next = [data.page, ...filtered];
+        localPersistence.setPages(next);
+        return next;
+      });
       setActivePage(data.page);
+      localPersistence.setActivePageId(data.page.id);
     }
+  };
+
+  const handleDeletePage = async (pageId: string) => {
+    try {
+      await fetch(`/api/facebook/pages/${pageId}`, {
+        method: 'DELETE',
+      });
+    } catch {}
+    setPages((prev) => {
+      const remaining = prev.filter((p) => p.id !== pageId && p.page_id !== pageId);
+      localPersistence.setPages(remaining);
+      if (activePage && (activePage.id === pageId || activePage.page_id === pageId)) {
+        const fallback = remaining[0] || null;
+        setActivePage(fallback);
+        if (fallback) localPersistence.setActivePageId(fallback.id);
+      }
+      return remaining;
+    });
+  };
+
+  const handleDeleteDemoPages = async () => {
+    try {
+      const res = await fetch('/api/facebook/pages/delete-demos', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.pages) {
+        setPages(data.pages);
+        localPersistence.setPages(data.pages);
+        if (data.active_page) {
+          setActivePage(data.active_page);
+          localPersistence.setActivePageId(data.active_page.id);
+        }
+        return;
+      }
+    } catch {}
+
+    // Fallback local cleanup
+    setPages((prev) => {
+      const remaining = prev.filter(
+        (p) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+      );
+      localPersistence.setPages(remaining);
+      if (
+        activePage &&
+        (activePage.is_demo ||
+          activePage.id === 'page_mada_01' ||
+          activePage.id === 'page_mada_02' ||
+          activePage.id === 'page_1')
+      ) {
+        const fallback = remaining[0] || null;
+        setActivePage(fallback);
+        if (fallback) localPersistence.setActivePageId(fallback.id);
+      }
+      return remaining;
+    });
   };
 
   // Products
@@ -508,12 +650,14 @@ export function App() {
         {/* Header */}
         <Header
           page={activePage}
+          pages={pages}
           settings={settings}
           notifications={notifications}
           apiKeys={apiKeys}
           isSyncing={isSyncing}
           onToggleAi={handleToggleAi}
           onSyncFacebook={handleSyncFacebook}
+          onSelectPage={handleSelectPage}
           onNavigate={handleNavigation}
           isSidebarCollapsed={isSidebarCollapsed}
           onToggleSidebar={handleToggleSidebar}
@@ -622,6 +766,9 @@ export function App() {
                 activePage={activePage}
                 onSelectPage={handleSelectPage}
                 onConnectNewPage={handleConnectNewPage}
+                onConnectRealPage={handleConnectRealPage}
+                onDeletePage={handleDeletePage}
+                onDeleteDemoPages={handleDeleteDemoPages}
               />
             )}
 

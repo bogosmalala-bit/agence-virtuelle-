@@ -16,14 +16,19 @@ import {
   Share2,
   Sparkles,
   Info,
+  Trash2,
 } from 'lucide-react';
 import { FacebookPage } from '../types.js';
+import { localPersistence } from '../lib/storage.js';
 
 interface FacebookSettingsViewProps {
   pages: FacebookPage[];
   activePage: FacebookPage | null;
   onSelectPage: (pageId: string) => Promise<void>;
   onConnectNewPage: (pageData: any) => Promise<void>;
+  onConnectRealPage?: (pageData: any) => Promise<any>;
+  onDeletePage?: (pageId: string) => Promise<void>;
+  onDeleteDemoPages?: () => Promise<void>;
 }
 
 export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
@@ -31,14 +36,22 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   activePage,
   onSelectPage,
   onConnectNewPage,
+  onConnectRealPage,
+  onDeletePage,
+  onDeleteDemoPages,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [newPageId, setNewPageId] = useState('');
   const [newPageName, setNewPageName] = useState('');
+  const [newPageToken, setNewPageToken] = useState('');
   const [newPageCat, setNewPageCat] = useState('Commerce & Vente');
-  const [metaAppId, setMetaAppId] = useState<string>('');
-  const [appIdInput, setAppIdInput] = useState<string>('');
-  const [appSecretInput, setAppSecretInput] = useState<string>('');
+  const [deletingPageId, setDeletingPageId] = useState<string | null>(null);
+  const [isDeletingDemos, setIsDeletingDemos] = useState<boolean>(false);
+  const [oauthReturnSuccess, setOauthReturnSuccess] = useState<string | null>(null);
+  const [metaAppId, setMetaAppId] = useState<string>(() => localPersistence.getAppId());
+  const [appIdInput, setAppIdInput] = useState<string>(() => localPersistence.getAppId());
+  const [appSecretInput, setAppSecretInput] = useState<string>(() => localPersistence.getAppSecret());
   const [showSecret, setShowSecret] = useState<boolean>(false);
   const [isSavingAppConfig, setIsSavingAppConfig] = useState<boolean>(false);
   const [appConfigStatus, setAppConfigStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -69,6 +82,28 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   ];
 
   useEffect(() => {
+    // 1. Detect OAuth return from Meta
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('meta_connected') === 'true') {
+        const pName = params.get('page_name') || 'Page Facebook';
+        setOauthReturnSuccess(`Tafiditra soa aman-tsara ny Page Meta "${pName}" !`);
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+
+    // 2. Load from localStorage first so user never loses credentials
+    const savedAppId = localPersistence.getAppId();
+    const savedAppSecret = localPersistence.getAppSecret();
+    if (savedAppId) {
+      setMetaAppId(savedAppId);
+      setAppIdInput(savedAppId);
+    }
+    if (savedAppSecret) {
+      setAppSecretInput(savedAppSecret);
+    }
+
+    // 3. Fetch from backend system config and sync
     fetch('/api/system/config')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -76,9 +111,21 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
           if (data.meta_app_id) {
             setMetaAppId(data.meta_app_id);
             setAppIdInput(data.meta_app_id);
+            localPersistence.setAppId(data.meta_app_id);
+          } else if (savedAppId) {
+            // Re-sync savedAppId to server
+            fetch('/api/system/config', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                meta_app_id: savedAppId,
+                meta_app_secret: savedAppSecret || undefined,
+              }),
+            }).catch(() => {});
           }
           if (data.meta_app_secret) {
             setAppSecretInput(data.meta_app_secret);
+            localPersistence.setAppSecret(data.meta_app_secret);
           }
         }
       })
@@ -109,12 +156,19 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
     setIsSavingAppConfig(true);
     setAppConfigStatus(null);
     try {
+      const cleanSecret = appSecretInput.trim();
+      // Store in localStorage immediately
+      localPersistence.setAppId(cleanId);
+      if (cleanSecret) {
+        localPersistence.setAppSecret(cleanSecret);
+      }
+
       const res = await fetch('/api/system/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           meta_app_id: cleanId,
-          meta_app_secret: appSecretInput.trim() || undefined,
+          meta_app_secret: cleanSecret || undefined,
         }),
       });
 
@@ -122,7 +176,7 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
         setMetaAppId(cleanId);
         setAppConfigStatus({
           type: 'success',
-          text: `Voatahiry soa aman-tsara ny App ID (${cleanId}) ! Vonona hanaovana Facebook Login izao.`,
+          text: `Voatahiry soa aman-tsara ny App ID (${cleanId}) sy ny App Secret ! Tsy hiala intsony na averina velomina aza ny pejy.`,
         });
         setTimeout(() => setAppConfigStatus(null), 5000);
       } else {
@@ -213,21 +267,79 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
 
   const handleConnectPage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPageName.trim()) return;
+    if (!newPageName.trim() && !newPageId.trim()) return;
     setIsConnecting(true);
     try {
-      await onConnectNewPage({
-        page_name: newPageName.trim(),
-        category: newPageCat,
-      });
+      if (onConnectRealPage) {
+        await onConnectRealPage({
+          page_id: newPageId.trim(),
+          page_name: newPageName.trim(),
+          category: newPageCat.trim() || 'Commerce & Services',
+          page_access_token: newPageToken.trim() || undefined,
+        });
+      } else {
+        await onConnectNewPage({
+          page_id: newPageId.trim() || undefined,
+          page_name: newPageName.trim() || 'Page Facebook Réelle',
+          category: newPageCat.trim() || 'Commerce & Services',
+          page_access_token: newPageToken.trim() || undefined,
+        });
+      }
       setNewPageName('');
+      setNewPageId('');
+      setNewPageToken('');
+      setAppConfigStatus({
+        type: 'success',
+        text: 'Tafiditra soa aman-tsara ny Page Réelle ary voafidy ho Page miasa amin\'ny rafitra !',
+      });
+      setTimeout(() => setAppConfigStatus(null), 5000);
+    } catch (err: any) {
+      setAppConfigStatus({
+        type: 'error',
+        text: `Fahadisoana: ${err?.message || 'Tsy voafandray ny Page'}`,
+      });
     } finally {
       setIsConnecting(false);
     }
   };
 
+  const handleDeletePageItem = async (pageId: string, pageName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Tena hofafanao ve ny Page "${pageName}" ?`)) {
+      setDeletingPageId(pageId);
+      try {
+        if (onDeletePage) {
+          await onDeletePage(pageId);
+        }
+      } finally {
+        setDeletingPageId(null);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* OAuth Success Banner from Meta redirect */}
+      {oauthReturnSuccess && (
+        <div className="rounded-2xl border border-emerald-500/40 bg-gradient-to-r from-emerald-950/60 via-slate-900 to-emerald-950/60 p-4 shadow-xl flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
+              <CheckCircle2 className="h-6 w-6" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-white">🎉 Fifandraisana Meta Facebook Tafita Soa Aman-tsara !</h4>
+              <p className="text-xs text-emerald-300/90 mt-0.5">{oauthReturnSuccess}</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setOauthReturnSuccess(null)}
+            className="rounded-lg px-2.5 py-1 text-xs font-semibold text-slate-400 hover:text-white"
+          >
+            Akatony
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -852,25 +964,56 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
 
       {/* Active Connected Page Card */}
       <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 space-y-4">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-slate-800 pb-3">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-          Page Facebook Miasa Ankehitriny (Active)
-        </h3>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-3 gap-2">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            Page Facebook Miasa Ankehitriny (Page Active)
+          </h3>
+          {activePage && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                (activePage.is_real || activePage.is_real_page || (activePage.id !== 'page_mada_01' && activePage.id !== 'page_mada_02')) && !activePage.is_demo
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${(activePage.is_real || activePage.is_real_page || (activePage.id !== 'page_mada_01' && activePage.id !== 'page_mada_02')) && !activePage.is_demo ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {(activePage.is_real || activePage.is_real_page || (activePage.id !== 'page_mada_01' && activePage.id !== 'page_mada_02')) && !activePage.is_demo ? 'Page Réelle Meta' : 'Page Démo'}
+            </span>
+          )}
+        </div>
 
-        {activePage && (
+        {activePage ? (
           <div className="flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-950 p-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-3.5">
               <img
-                src={activePage.avatar_url}
+                src={activePage.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
                 alt={activePage.page_name}
                 className="h-12 w-12 rounded-xl object-cover ring-2 ring-blue-500/40"
               />
               <div>
-                <h4 className="text-sm font-bold text-white">{activePage.page_name}</h4>
-                <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
-                  <span>ID Meta : {activePage.page_id}</span>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">{activePage.page_name}</h4>
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                      (activePage.is_real || activePage.is_real_page || (activePage.id !== 'page_mada_01' && activePage.id !== 'page_mada_02')) && !activePage.is_demo
+                        ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/50'
+                        : 'bg-amber-900/40 text-amber-300 border border-amber-700/40'
+                    }`}
+                  >
+                    {(activePage.is_real || activePage.is_real_page || (activePage.id !== 'page_mada_01' && activePage.id !== 'page_mada_02')) && !activePage.is_demo ? '✅ Page Réelle' : '⚠️ Démo'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400 mt-1">
+                  <span className="font-mono text-slate-300">ID: {activePage.page_id}</span>
                   <span>•</span>
-                  <span>Catégorie : {activePage.category}</span>
+                  <span>Sokajy: {activePage.category || 'Commerce & Vente'}</span>
+                  {activePage.fan_count !== undefined && (
+                    <>
+                      <span>•</span>
+                      <span className="text-emerald-400 font-semibold">{activePage.fan_count.toLocaleString()} mpanaraka</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -879,50 +1022,119 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
               <div className="text-right">
                 <span className="flex items-center gap-1 text-xs font-bold text-emerald-400">
                   <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                  Token Valide (Graph API v20.0)
+                  Mifandray amin'ny Webhook
                 </span>
                 <span className="text-[11px] text-slate-500">
-                  Mifandray sy voaaro amin'ny serveur
+                  Mandray hafatra sy kaomandy mivantana
                 </span>
               </div>
             </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-800 p-6 text-center">
+            <p className="text-xs text-slate-400">Tsy mbola misy Page voasafidy ho miasa. Safidio na ampidiro eto ambany ny Page Facebook-nao.</p>
           </div>
         )}
 
         {/* Page Switcher */}
         <div>
-          <label className="block text-xs font-bold text-slate-300 mb-1.5">
-            Hisafidy Page hafa efa voarakitra :
-          </label>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2 gap-2">
+            <label className="block text-xs font-bold text-slate-300">
+              Lisitr'ireo Pages voarakitra ao amin'ny rafitra ({pages.length}) :
+            </label>
+            {pages.some((p) => p.is_demo || p.id === 'page_mada_01' || p.id === 'page_mada_02' || p.id === 'page_1') && (
+              <button
+                onClick={async () => {
+                  if (window.confirm('Tena hofafanao ve ny Pages Démo rehetra mba tsy hisy afa-tsy ny tena Page Réelle-nao ?')) {
+                    setIsDeletingDemos(true);
+                    try {
+                      if (onDeleteDemoPages) {
+                        await onDeleteDemoPages();
+                      } else {
+                        // Delete individually
+                        const demoPages = pages.filter((p) => p.is_demo || p.id === 'page_mada_01' || p.id === 'page_mada_02' || p.id === 'page_1');
+                        for (const dp of demoPages) {
+                          if (onDeletePage) await onDeletePage(dp.id);
+                        }
+                      }
+                      setAppConfigStatus({
+                        type: 'success',
+                        text: 'Voafafa soa aman-tsara ny Pages Démo rehetra !',
+                      });
+                      setTimeout(() => setAppConfigStatus(null), 4000);
+                    } finally {
+                      setIsDeletingDemos(false);
+                    }
+                  }
+                }}
+                disabled={isDeletingDemos}
+                className="text-[11px] text-red-400 hover:text-red-300 bg-red-950/30 hover:bg-red-950/60 border border-red-900/50 rounded-lg px-2.5 py-1 flex items-center gap-1.5 font-medium transition-all self-start sm:self-auto"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                <span>{isDeletingDemos ? 'Eo am-pamafana...' : 'Fafao ny Page Démo Rehetra (Tena Page Réelle ihany)'}</span>
+              </button>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {pages.map((p) => {
-              const isSelected = activePage?.id === p.id;
+              const isSelected = activePage?.id === p.id || activePage?.page_id === p.page_id;
+              const isReal = (p.is_real === true || p.is_real_page === true || (p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1')) && !p.is_demo;
               return (
                 <div
                   key={p.id}
                   onClick={() => onSelectPage(p.id)}
-                  className={`flex cursor-pointer items-center justify-between rounded-xl border p-3 transition-all ${
+                  className={`flex cursor-pointer items-center justify-between rounded-xl border p-3.5 transition-all ${
                     isSelected
-                      ? 'border-blue-500 bg-blue-950/30 ring-1 ring-blue-500'
-                      : 'border-slate-800 bg-slate-950/60 hover:border-slate-700'
+                      ? 'border-blue-500 bg-blue-950/40 ring-1 ring-blue-500 shadow-md shadow-blue-900/20'
+                      : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-900/50'
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3 min-w-0">
                     <img
-                      src={p.avatar_url}
+                      src={p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
                       alt={p.page_name}
-                      className="h-8 w-8 rounded-lg object-cover"
+                      className="h-10 w-10 rounded-lg object-cover flex-shrink-0"
                     />
-                    <div>
-                      <p className="text-xs font-bold text-white">{p.page_name}</p>
-                      <span className="text-[10px] text-slate-400">{p.category}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-xs font-bold text-white truncate">{p.page_name}</p>
+                        <span
+                          className={`rounded px-1.5 py-0.2 text-[9px] font-bold uppercase ${
+                            isReal
+                              ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/60'
+                              : 'bg-amber-950 text-amber-400 border border-amber-800/60'
+                          }`}
+                        >
+                          {isReal ? 'Réelle' : 'Démo'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        ID: <span className="font-mono text-slate-300">{p.page_id}</span> • {p.category}
+                      </p>
                     </div>
                   </div>
-                  {isSelected && (
-                    <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold text-white">
-                      Miasa
-                    </span>
-                  )}
+
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    {isSelected ? (
+                      <span className="rounded-full bg-blue-600 px-2.5 py-0.5 text-[10px] font-bold text-white">
+                        Miasa
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300 group-hover:bg-slate-700">
+                        Hisafidy
+                      </span>
+                    )}
+
+                    <button
+                      onClick={(e) => handleDeletePageItem(p.id, p.page_name, e)}
+                      disabled={deletingPageId === p.id}
+                      title="Fafao ity page ity"
+                      className="rounded-lg p-1.5 text-slate-500 hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -930,40 +1142,99 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
         </div>
       </div>
 
-      {/* Connect Another Facebook Page Form */}
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 space-y-3">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <Plus className="h-4 w-4 text-blue-400" />
-          Mampiditra Page Facebook Vaovao
-        </h3>
-        <p className="text-xs text-slate-400">
-          Ampidiro eto ny anaran'ny Page tianao hampidirina ao amin'ny rafitra mba hahafahan'ny AI mandray ny hafatra sy ny kaomandy.
-        </p>
+      {/* Connect Another / Real Facebook Page Form */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-5 space-y-4">
+        <div className="border-b border-slate-800 pb-3">
+          <h3 className="text-sm font-bold text-white flex items-center gap-2">
+            <Plus className="h-4 w-4 text-blue-400" />
+            Fampidirana Page Facebook Réelle (Mivantana na amin'ny Token)
+          </h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Raha tsy mandalo amin'ny bokotra "Connecter amin'ny Facebook Login" ianao, na te hampiditra mivantana ny tena Page-nao, fenoy eto ny mombamomba azy. Hahazo avy hatrany ny hafatra sy ny fanehoan-kevitra ny AI.
+          </p>
+        </div>
 
-        <form onSubmit={handleConnectPage} className="grid grid-cols-1 gap-3 sm:grid-cols-3 pt-2">
-          <input
-            type="text"
-            placeholder="Anaran'ny Page Facebook..."
-            value={newPageName}
-            onChange={(e) => setNewPageName(e.target.value)}
-            className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-            required
-          />
-          <input
-            type="text"
-            placeholder="Sokajy (oh: Boutik, Vêtements, Tech)"
-            value={newPageCat}
-            onChange={(e) => setNewPageCat(e.target.value)}
-            className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={isConnecting}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500"
-          >
-            <Facebook className="h-4 w-4" />
-            <span>Mampifandray ny Page</span>
-          </button>
+        <form onSubmit={handleConnectPage} className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Laharana Page ID Meta (Tarehimarika Identifiant de la Page) *
+              </label>
+              <input
+                type="text"
+                placeholder="oh: 109283746592019"
+                value={newPageId}
+                onChange={(e) => setNewPageId(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white font-mono placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
+                required
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Azo ao amin'ny pejy Facebook-nao &gt; À propos &gt; Transparence de la page.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Anaran'ny Page Facebook (Nom officiel) *
+              </label>
+              <input
+                type="text"
+                placeholder="oh: Boutique Andry Madagascar..."
+                value={newPageName}
+                onChange={(e) => setNewPageName(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
+                required
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Ny tena anaran'ny Page-nao ao amin'ny Facebook.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Page Access Token Meta (Jeton d'accès de page) <span className="text-slate-500 font-normal">(Recommandé)</span>
+              </label>
+              <input
+                type="password"
+                placeholder="EAA..."
+                value={newPageToken}
+                onChange={(e) => setNewPageToken(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white font-mono placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Avy ao amin'ny Meta Graph API Explorer na Meta Business Suite. Raha asiana io dia miantso mivantana an'i Meta ny rafitra haka ny sariny sy ny mpanaraka.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-300 mb-1">
+                Sokajy (Catégorie de la page)
+              </label>
+              <input
+                type="text"
+                placeholder="oh: Commerce, Vêtements, Tech, Restaurant..."
+                value={newPageCat}
+                onChange={(e) => setNewPageCat(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Ampahafantaro ny AI ny karazan'asa ataon'ny pejy.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end pt-2">
+            <button
+              type="submit"
+              disabled={isConnecting}
+              className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 disabled:opacity-50"
+            >
+              <Facebook className="h-4 w-4" />
+              <span>{isConnecting ? 'Mampifandray amin\'ny Meta...' : 'Ampidiro & Hamafiso ny Page Réelle'}</span>
+            </button>
+          </div>
         </form>
       </div>
     </div>

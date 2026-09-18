@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import {
   User,
   FacebookPage,
@@ -15,6 +17,10 @@ import {
   WebhookLog,
   SystemConfig,
 } from '../src/types.js';
+
+const STORAGE_FILE = process.env.VERCEL
+  ? '/tmp/assistante_storage.json'
+  : path.join(process.cwd(), 'assistante_storage.json');
 
 // In-Memory Database with realistic seed data
 export interface DatabaseSchema {
@@ -72,6 +78,9 @@ export const db: DatabaseSchema = {
       token_expires_at: '2026-12-31T23:59:59.000Z',
       status: 'CONNECTED',
       connected_at: '2026-02-01T10:00:00.000Z',
+      is_demo: true,
+      is_real_page: false,
+      is_real: false,
     },
     {
       id: 'page_mada_02',
@@ -86,6 +95,9 @@ export const db: DatabaseSchema = {
       token_expires_at: '2026-11-30T23:59:59.000Z',
       status: 'DISCONNECTED',
       connected_at: '2026-02-15T14:30:00.000Z',
+      is_demo: true,
+      is_real_page: false,
+      is_real: false,
     },
   ],
 
@@ -384,3 +396,68 @@ export const db: DatabaseSchema = {
 
   webhookLogs: [],
 };
+
+const STORAGE_FILES = [
+  path.join(process.cwd(), 'assistante_storage.json'),
+  '/tmp/assistante_storage.json',
+];
+
+export function saveDb(): void {
+  try {
+    const payload = {
+      systemConfig: db.systemConfig,
+      facebookPages: db.facebookPages,
+      activePageId: db.activePageId,
+      assistantSettings: db.assistantSettings,
+      user: db.user,
+    };
+    const json = JSON.stringify(payload, null, 2);
+    for (const filePath of STORAGE_FILES) {
+      try {
+        fs.writeFileSync(filePath, json, 'utf-8');
+      } catch (err) {
+        // Continue to fallback paths
+      }
+    }
+  } catch (err) {
+    console.error('[DB SAVE ERROR]', err);
+  }
+}
+
+export function loadDb(): void {
+  try {
+    for (const filePath of STORAGE_FILES) {
+      try {
+        if (fs.existsSync(filePath)) {
+          const raw = fs.readFileSync(filePath, 'utf-8');
+          const data = JSON.parse(raw);
+          if (data.systemConfig) {
+            db.systemConfig = { ...db.systemConfig, ...data.systemConfig };
+          }
+          if (Array.isArray(data.facebookPages) && data.facebookPages.length > 0) {
+            db.facebookPages = data.facebookPages;
+          }
+          if (data.activePageId) {
+            db.activePageId = data.activePageId;
+          }
+          if (data.assistantSettings) {
+            db.assistantSettings = { ...db.assistantSettings, ...data.assistantSettings };
+          }
+          if (data.user) {
+            db.user = { ...db.user, ...data.user };
+          }
+          break; // Loaded successfully
+        }
+      } catch (err) {
+        // Try fallback path
+      }
+    }
+  } catch (err) {
+    console.error('[DB LOAD ERROR]', err);
+  }
+}
+
+// Automatically load on module initialization
+loadDb();
+
+

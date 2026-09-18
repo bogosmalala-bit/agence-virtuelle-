@@ -38,6 +38,10 @@ export interface FacebookPage {
   token_expires_at?: string;
   status: 'CONNECTED' | 'DISCONNECTED';
   connected_at: string;
+  page_access_token?: string;
+  is_real_page?: boolean;
+  is_real?: boolean;
+  is_demo?: boolean;
 }
 
 export interface ProductFile {

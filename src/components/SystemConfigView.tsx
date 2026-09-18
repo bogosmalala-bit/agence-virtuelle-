@@ -16,6 +16,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { SystemConfig } from '../types.js';
+import { localPersistence } from '../lib/storage.js';
 
 interface SystemConfigViewProps {
   onConfigSaved?: () => void;
@@ -23,8 +24,8 @@ interface SystemConfigViewProps {
 
 export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ onConfigSaved }) => {
   const [config, setConfig] = useState<SystemConfig>({
-    meta_app_id: '',
-    meta_app_secret: '',
+    meta_app_id: localPersistence.getAppId() || '',
+    meta_app_secret: localPersistence.getAppSecret() || '',
     meta_verify_token: 'assistante_virtuelle_webhook_verify_token',
     firebase_fcm_server_key: '',
     operator_phone_number: '+261 34 00 000 00',
@@ -45,9 +46,14 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ onConfigSave
       .then((r) => r.json())
       .then((data) => {
         if (data) {
+          const appId = data.meta_app_id || localPersistence.getAppId() || '';
+          const appSecret = data.meta_app_secret || localPersistence.getAppSecret() || '';
+          if (appId) localPersistence.setAppId(appId);
+          if (appSecret) localPersistence.setAppSecret(appSecret);
+
           setConfig({
-            meta_app_id: data.meta_app_id || '',
-            meta_app_secret: data.meta_app_secret || '',
+            meta_app_id: appId,
+            meta_app_secret: appSecret,
             meta_verify_token: data.meta_verify_token || 'assistante_virtuelle_webhook_verify_token',
             firebase_fcm_server_key: data.firebase_fcm_server_key || '',
             operator_phone_number: data.operator_phone_number || '+261 34 00 000 00',
@@ -63,6 +69,9 @@ export const SystemConfigView: React.FC<SystemConfigViewProps> = ({ onConfigSave
     setIsSaving(true);
     setSaveSuccess(false);
     try {
+      if (config.meta_app_id) localPersistence.setAppId(config.meta_app_id);
+      if (config.meta_app_secret) localPersistence.setAppSecret(config.meta_app_secret);
+
       const res = await fetch('/api/system/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },

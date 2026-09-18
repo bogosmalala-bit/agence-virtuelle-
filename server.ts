@@ -3,7 +3,7 @@ import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-import { db } from './server/db.js';
+import { db, saveDb, loadDb } from './server/db.js';
 import {
   generateContentWithRotation,
   buildSystemInstruction,
@@ -18,7 +18,7 @@ import {
 } from './server/facebookService.js';
 import { createOrder, validateOrderInput } from './server/orderEngine.js';
 import { sendPushNotification } from './server/notificationService.js';
-import { Product, ScheduledPost, Message, Conversation, FacebookComment } from './src/types.js';
+import type { FacebookPage, Product, ScheduledPost, Message, Conversation, FacebookComment } from './src/types.js';
 
 dotenv.config();
 
@@ -138,34 +138,157 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
   app.post('/api/facebook/pages/select', (req, res) => {
     const { pageId } = req.body;
-    const found = db.facebookPages.find((p) => p.id === pageId);
+    const found = db.facebookPages.find((p) => p.id === pageId || p.page_id === pageId);
     if (found) {
-      db.activePageId = pageId;
+      db.activePageId = found.id;
       found.status = 'CONNECTED';
+      saveDb();
       return res.json({ success: true, activePage: found });
     }
     return res.status(404).json({ error: 'Page non trouvée' });
   });
 
-  app.post('/api/facebook/pages/connect', (req, res) => {
-    const { page_name, category, avatar_url } = req.body;
-    const newPage = {
-      id: `page_mada_${Date.now()}`,
+  app.delete('/api/facebook/pages/:id', (req, res) => {
+    const { id } = req.params;
+    const idx = db.facebookPages.findIndex((p) => p.id === id || p.page_id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Page non trouvée' });
+    }
+    const [removed] = db.facebookPages.splice(idx, 1);
+    if (db.activePageId === removed.id || db.activePageId === removed.page_id) {
+      db.activePageId = db.facebookPages[0]?.id || '';
+    }
+    saveDb();
+    return res.json({ success: true, removed, activePageId: db.activePageId });
+  });
+
+  // Delete all demo pages to keep ONLY real Meta pages
+  app.post('/api/facebook/pages/delete-demos', (req, res) => {
+    db.facebookPages = db.facebookPages.filter((p) => p.is_real_page || p.is_real);
+    if (!db.facebookPages.some((p) => p.id === db.activePageId || p.page_id === db.activePageId)) {
+      db.activePageId = db.facebookPages[0]?.id || '';
+    }
+    saveDb();
+    return res.json({ success: true, pages: db.facebookPages, activePageId: db.activePageId });
+  });
+
+  const handleConnectPageHelper = async (req: express.Request, res: express.Response) => {
+    const { page_id, page_name, category, avatar_url, page_access_token } = req.body;
+
+    let cleanPageId = (page_id || '').trim();
+    if (!cleanPageId) {
+      cleanPageId = `${Math.floor(100000000000000 + Math.random() * 900000000000000)}`;
+    }
+    let cleanName = (page_name || '').trim() || 'Page Facebook Réelle';
+    let cleanCategory = (category || '').trim() || 'Commerce & Vente';
+    let cleanAvatar = (avatar_url || '').trim() || 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=200&h=200&q=80';
+    const cleanToken = (page_access_token || '').trim();
+    let fanCount = 0;
+
+    // If Page Access Token is provided, fetch real details from Meta Graph API
+    if (cleanToken) {
+      try {
+        const fbRes = await fetch(`https://graph.facebook.com/v20.0/${cleanPageId}?fields=id,name,category,fan_count,picture{url}&access_token=${cleanToken}`);
+        const fbData = await fbRes.json();
+        if (fbData && fbData.id) {
+          cleanPageId = fbData.id;
+          cleanName = fbData.name || cleanName;
+          cleanCategory = fbData.category || cleanCategory;
+          if (fbData.picture?.data?.url) cleanAvatar = fbData.picture.data.url;
+          fanCount = fbData.fan_count || fanCount;
+
+          // Auto-subscribe page to webhooks
+          try {
+            await fetch(`https://graph.facebook.com/v20.0/${cleanPageId}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,feed&access_token=${cleanToken}`, {
+              method: 'POST',
+            });
+          } catch (subErr) {
+            console.warn('[SUBSCRIBE APP ERR]', subErr);
+          }
+        }
+      } catch (err) {
+        console.warn('[META GRAPH VALIDATION ERR]', err);
+      }
+    }
+
+    const newPage: FacebookPage = {
+      id: `page_${cleanPageId}`,
       user_id: db.user.id,
-      page_id: `${Math.floor(100000000000000 + Math.random() * 900000000000000)}`,
-      page_name: page_name || 'Nouvelle Page Facebook',
-      category: category || 'Commerce & Vente',
-      avatar_url: avatar_url || 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=200&h=200&q=80',
-      fan_count: 500,
-      has_access_token: true,
-      token_status: 'VALID' as const,
+      page_id: cleanPageId,
+      page_name: cleanName,
+      category: cleanCategory,
+      avatar_url: cleanAvatar,
+      fan_count: fanCount || 1000,
+      has_access_token: Boolean(cleanToken),
+      page_access_token: cleanToken || undefined,
+      token_status: 'VALID',
       token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
-      status: 'CONNECTED' as const,
+      status: 'CONNECTED',
       connected_at: new Date().toISOString(),
+      is_real_page: true,
+      is_real: true,
     };
-    db.facebookPages.push(newPage);
+
+    const existingIdx = db.facebookPages.findIndex((p) => p.page_id === cleanPageId || p.id === newPage.id);
+    if (existingIdx >= 0) {
+      db.facebookPages[existingIdx] = newPage;
+    } else {
+      db.facebookPages.unshift(newPage);
+    }
     db.activePageId = newPage.id;
+    saveDb();
+
     res.json({ success: true, page: newPage });
+  };
+
+  app.post('/api/facebook/pages/connect', handleConnectPageHelper);
+  app.post('/api/facebook/pages/connect-real', handleConnectPageHelper);
+
+  // Restore client state if server restarted
+  app.post('/api/sync/restore-state', (req, res) => {
+    const { meta_app_id, meta_app_secret, pages, activePageId } = req.body;
+    let modified = false;
+
+    if (meta_app_id && typeof meta_app_id === 'string' && meta_app_id.trim()) {
+      db.systemConfig.meta_app_id = meta_app_id.trim();
+      modified = true;
+    }
+    if (meta_app_secret && typeof meta_app_secret === 'string' && meta_app_secret.trim() && !meta_app_secret.includes('••••')) {
+      db.systemConfig.meta_app_secret = meta_app_secret.trim();
+      modified = true;
+    }
+    if (Array.isArray(pages) && pages.length > 0) {
+      // Merge real pages into db
+      for (const page of pages) {
+        if (page.is_real_page || page.is_real) {
+          const idx = db.facebookPages.findIndex((p) => p.page_id === page.page_id || p.id === page.id);
+          if (idx >= 0) {
+            db.facebookPages[idx] = { ...db.facebookPages[idx], ...page };
+          } else {
+            db.facebookPages.unshift(page);
+          }
+          modified = true;
+        }
+      }
+    }
+    if (activePageId && typeof activePageId === 'string') {
+      const found = db.facebookPages.find((p) => p.id === activePageId || p.page_id === activePageId);
+      if (found) {
+        db.activePageId = found.id;
+        found.status = 'CONNECTED';
+        modified = true;
+      }
+    }
+    if (modified) {
+      saveDb();
+    }
+    const activePage = db.facebookPages.find((p) => p.id === db.activePageId) || db.facebookPages[0];
+    res.json({
+      success: true,
+      activePage,
+      pages: db.facebookPages,
+      systemConfig: db.systemConfig,
+    });
   });
 
   // ==========================================
@@ -205,7 +328,7 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
   });
 
   // OAuth Redirect Callback from Meta
-  const handleFacebookCallback = (req: express.Request, res: express.Response) => {
+  const handleFacebookCallback = async (req: express.Request, res: express.Response) => {
     const { code, state, error, error_description } = req.query;
 
     if (error) {
@@ -215,8 +338,99 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
     if (code) {
       console.log('[META OAUTH SUCCESS] Code received:', String(code).slice(0, 15) + '...');
-      // In production with meta_app_secret, we exchange this code for user & page access tokens
-      // Here we seamlessly link or refresh active Facebook status
+      const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      const redirectUri = `${protocol}://${host}/api/auth/facebook/callback`;
+      const appId = db.systemConfig.meta_app_id || process.env.META_APP_ID;
+      const appSecret = db.systemConfig.meta_app_secret || process.env.META_APP_SECRET;
+
+      let realPagesCount = 0;
+      let firstRealPageName = '';
+
+      if (appId && appSecret) {
+        try {
+          // 1. Exchange code for user access token
+          const tokenUrl = `https://graph.facebook.com/v20.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;
+          const tokenRes = await fetch(tokenUrl);
+          const tokenData = await tokenRes.json();
+
+          if (tokenData?.access_token) {
+            const userAccessToken = tokenData.access_token;
+            console.log('[META OAUTH] Access Token obtained');
+
+            // 2. Fetch User Profile
+            try {
+              const meRes = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,name,picture.type(large)&access_token=${userAccessToken}`);
+              const meData = await meRes.json();
+              if (meData?.id) {
+                db.user.facebook_id = meData.id;
+                if (meData.name) db.user.name = meData.name;
+                if (meData.picture?.data?.url) db.user.avatar_url = meData.picture.data.url;
+              }
+            } catch (err) {
+              console.warn('[META PROFILE FETCH WARN]', err);
+            }
+
+            // 3. Fetch User's Real Facebook Pages
+            const accountsUrl = `https://graph.facebook.com/v20.0/me/accounts?fields=id,name,access_token,category,fan_count,picture{url}&access_token=${userAccessToken}`;
+            const accountsRes = await fetch(accountsUrl);
+            const accountsData = await accountsRes.json();
+
+            if (Array.isArray(accountsData?.data) && accountsData.data.length > 0) {
+              console.log(`[META OAUTH] Found ${accountsData.data.length} real Facebook Pages`);
+
+              for (const fbPage of accountsData.data) {
+                // Subscribe page to Webhooks
+                try {
+                  await fetch(`https://graph.facebook.com/v20.0/${fbPage.id}/subscribed_apps?subscribed_fields=messages,messaging_postbacks,feed&access_token=${fbPage.access_token}`, {
+                    method: 'POST',
+                  });
+                } catch (subErr) {
+                  console.warn('[SUBSCRIBE APPS WARN]', subErr);
+                }
+
+                const pageAvatar = fbPage.picture?.data?.url || `https://graph.facebook.com/v20.0/${fbPage.id}/picture?type=large&access_token=${fbPage.access_token}`;
+
+                const realPageRecord: FacebookPage = {
+                  id: `page_${fbPage.id}`,
+                  user_id: db.user.id,
+                  page_id: fbPage.id,
+                  page_name: fbPage.name,
+                  category: fbPage.category || 'Commerce & Services',
+                  avatar_url: pageAvatar,
+                  fan_count: fbPage.fan_count || 0,
+                  has_access_token: true,
+                  page_access_token: fbPage.access_token,
+                  token_status: 'VALID',
+                  token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+                  status: 'CONNECTED',
+                  connected_at: new Date().toISOString(),
+                  is_real_page: true,
+                };
+
+                const existingIdx = db.facebookPages.findIndex((p) => p.page_id === fbPage.id);
+                if (existingIdx >= 0) {
+                  db.facebookPages[existingIdx] = realPageRecord;
+                } else {
+                  db.facebookPages.unshift(realPageRecord);
+                }
+
+                if (!firstRealPageName) {
+                  firstRealPageName = fbPage.name;
+                  db.activePageId = realPageRecord.id;
+                }
+                realPagesCount++;
+              }
+            }
+          } else {
+            console.error('[META GRAPH TOKEN EXCHANGE ERROR]', tokenData);
+          }
+        } catch (apiErr) {
+          console.error('[META GRAPH API EXCEPTION]', apiErr);
+        }
+      }
+
+      // Mark active page status
       const active = db.facebookPages.find((p) => p.id === db.activePageId);
       if (active) {
         active.status = 'CONNECTED';
@@ -224,17 +438,21 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
         active.token_expires_at = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
       }
 
+      saveDb();
+
       db.notifications.unshift({
         id: `notif_${Date.now()}`,
         type: 'POST_PUBLISHED',
-        title: '✅ Connexion Facebook Réussie',
-        message: 'Votre compte Facebook et vos Pages ont été reliés via Meta OAuth avec succès.',
+        title: realPagesCount > 0 ? `✅ Page Réelle Connectée (${firstRealPageName})` : '✅ Connexion Facebook Réussie',
+        message: realPagesCount > 0
+          ? `Tafiditra soa aman-tsara ny Page "${firstRealPageName}" ary efa vonona hiasa ny Webhook sy ny Messenger.`
+          : 'Votre compte Facebook a été relié avec succès.',
         channel: 'IN_APP',
         status: 'DELIVERED',
         created_at: new Date().toISOString(),
       });
 
-      return res.redirect('/?meta_connected=true');
+      return res.redirect(`/?meta_connected=true${firstRealPageName ? `&page_name=${encodeURIComponent(firstRealPageName)}` : ''}`);
     }
 
     return res.redirect('/');
@@ -1336,6 +1554,8 @@ Format de réponse JSON attendu :
     }
     db.systemConfig.updated_at = new Date().toISOString();
 
+    saveDb();
+
     db.notifications.unshift({
       id: `notif_${Date.now()}`,
       type: 'POST_PUBLISHED',
@@ -1345,6 +1565,8 @@ Format de réponse JSON attendu :
       status: 'DELIVERED',
       created_at: new Date().toISOString(),
     });
+
+    saveDb();
 
     res.json({ success: true, config: db.systemConfig });
   });

@@ -18,12 +18,14 @@ import { FacebookPage, AssistantSettings, NotificationLog, AIApiKeyConfig } from
 
 interface HeaderProps {
   page: FacebookPage | null;
+  pages?: FacebookPage[];
   settings: AssistantSettings | null;
   notifications: NotificationLog[];
   apiKeys: AIApiKeyConfig[];
   isSyncing?: boolean;
   onToggleAi: () => void;
   onSyncFacebook?: () => void;
+  onSelectPage?: (pageId: string) => void;
   onNavigate: (view: string) => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -31,17 +33,20 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   page,
+  pages = [],
   settings,
   notifications,
   apiKeys,
   isSyncing = false,
   onToggleAi,
   onSyncFacebook,
+  onSelectPage,
   onNavigate,
   isSidebarCollapsed = false,
   onToggleSidebar,
 }) => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
+  const [showPageMenu, setShowPageMenu] = useState(false);
   const activeKey = apiKeys.find((k) => k.status === 'ACTIVE');
   const hasQuotaLimit = apiKeys.some((k) => k.status === 'QUOTA_LIMIT');
 
@@ -65,19 +70,112 @@ export const Header: React.FC<HeaderProps> = ({
         )}
 
         {page && (
-          <div className="flex items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/60 p-1.5 pr-3">
-            <img
-              src={page.avatar_url}
-              alt={page.page_name}
-              className="h-8 w-8 rounded-full border border-blue-500/40 object-cover"
-            />
-            <div className="hidden sm:block">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-200">{page.page_name}</span>
-                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+          <div className="relative">
+            <button
+              onClick={() => setShowPageMenu(!showPageMenu)}
+              className="flex items-center gap-2.5 rounded-xl border border-slate-800 bg-slate-950/70 p-1.5 pr-2.5 hover:border-slate-700 hover:bg-slate-900 transition-all text-left"
+              title="Kitiho raha hanova ny Page Facebook miasa"
+            >
+              <img
+                src={page.avatar_url}
+                alt={page.page_name}
+                className="h-8 w-8 rounded-full border border-blue-500/40 object-cover shrink-0"
+              />
+              <div className="hidden sm:block">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-100 max-w-[140px] truncate">
+                    {page.page_name}
+                  </span>
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      page.status === 'CONNECTED' ? 'bg-emerald-500 ring-2 ring-emerald-500/20' : 'bg-amber-500'
+                    }`}
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  {page.is_real_page ? (
+                    <span className="rounded bg-blue-500/20 px-1.5 py-0.2 text-[9px] font-bold text-blue-400">
+                      Page Réelle Meta
+                    </span>
+                  ) : (
+                    <span className="rounded bg-amber-500/20 px-1.5 py-0.2 text-[9px] font-semibold text-amber-300">
+                      Démo
+                    </span>
+                  )}
+                  <span className="text-[10px] text-slate-400 font-mono">ID: {page.page_id.slice(-6)}</span>
+                </div>
               </div>
-              <span className="text-[11px] text-slate-400">Meta ID: {page.page_id.slice(-6)}</span>
-            </div>
+              <ChevronDown className="h-3.5 w-3.5 text-slate-400 ml-1" />
+            </button>
+
+            {/* Page Dropdown Menu */}
+            {showPageMenu && (
+              <div className="absolute left-0 top-full mt-2 w-72 rounded-2xl border border-slate-800 bg-slate-900/98 p-2 shadow-2xl backdrop-blur-xl z-50">
+                <div className="px-2.5 py-1.5 border-b border-slate-800/80 mb-1 flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Pages Facebook voarakitra
+                  </span>
+                  <button
+                    onClick={() => {
+                      setShowPageMenu(false);
+                      onNavigate('facebook');
+                    }}
+                    className="text-[10px] font-semibold text-blue-400 hover:text-blue-300"
+                  >
+                    + Hitantana
+                  </button>
+                </div>
+                <div className="space-y-1 max-h-60 overflow-y-auto">
+                  {pages.map((p) => {
+                    const isSelected = p.id === page.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          if (onSelectPage) onSelectPage(p.id);
+                          setShowPageMenu(false);
+                        }}
+                        className={`w-full flex items-center justify-between gap-2 rounded-xl p-2 text-left transition-all ${
+                          isSelected
+                            ? 'bg-blue-600/20 border border-blue-500/40 text-white'
+                            : 'hover:bg-slate-800/60 text-slate-300 border border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <img
+                            src={p.avatar_url}
+                            alt={p.page_name}
+                            className="h-7 w-7 rounded-full object-cover shrink-0 border border-slate-700"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold truncate text-white">{p.page_name}</p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {p.is_real_page ? 'Page Réelle Meta' : 'Page Démo'} • ID: {p.page_id}
+                            </p>
+                          </div>
+                        </div>
+                        {isSelected && (
+                          <span className="shrink-0 rounded-full bg-blue-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                            Actif
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 pt-2 border-t border-slate-800">
+                  <button
+                    onClick={() => {
+                      setShowPageMenu(false);
+                      onNavigate('facebook');
+                    }}
+                    className="w-full text-center py-1.5 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 font-bold text-xs transition-all"
+                  >
+                    Ampifandraiso ny Page Meta Réelle-nao →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
