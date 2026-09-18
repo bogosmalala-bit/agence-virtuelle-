@@ -1727,17 +1727,17 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <label className="block text-[11px] font-bold text-slate-300 mb-1">
-                Page Access Token Meta (Jeton d'accès de page) <span className="text-slate-500 font-normal">(Recommandé)</span>
+                Page Access Token Meta <span className="text-emerald-400 font-normal">(Voaray ho azy amin'ny Facebook Login)</span>
               </label>
               <input
                 type="password"
-                placeholder="EAA..."
+                placeholder="Token nalaina ho azy na ampidiro eto..."
                 value={newPageToken}
                 onChange={(e) => setNewPageToken(e.target.value)}
                 className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white font-mono placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
               />
               <p className="text-[10px] text-slate-500 mt-1">
-                Avy ao amin'ny Meta Graph API Explorer na Meta Business Suite. Raha asiana io dia miantso mivantana an'i Meta ny rafitra haka ny sariny sy ny mpanaraka.
+                Averina ampahatsiahivina: nalaina ho azy avy ao amin'ny Facebook Login ny Token fa tsy voatery ho soratana tanana.
               </p>
             </div>
 

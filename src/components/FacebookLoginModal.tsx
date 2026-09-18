@@ -412,51 +412,16 @@ export const FacebookLoginModal: React.FC<FacebookLoginModalProps> = ({
           </p>
         </div>
 
-        {/* Divider */}
-        <div className="relative flex items-center justify-center">
-          <div className="border-t border-slate-800 w-full" />
-          <span className="bg-slate-900 px-3 text-[11px] font-semibold text-slate-500 uppercase tracking-wider shrink-0">
-            Na ampidiro ny User Access Token (Explorer)
-          </span>
-        </div>
-
-        {/* Alternative Method: User Access Token */}
-        <form onSubmit={handleManualTokenSubmit} className="space-y-2.5">
-          <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold text-slate-300">
-              User Access Token (Graph API Explorer) :
-            </label>
-            <a
-              href={explorerUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[11px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1"
-            >
-              <span>Sokafy ny Graph API Explorer</span>
-              <ExternalLink className="h-3 w-3" />
-            </a>
+        {/* Automated Graph API Status Badge */}
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-950/40 p-3.5 space-y-1.5">
+          <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            <span>Graph API Access Token : Synchronisé Automatiquement</span>
           </div>
-          <div className="flex gap-2">
-            <input
-              type="password"
-              placeholder="EAA..."
-              value={userToken}
-              onChange={(e) => setUserToken(e.target.value)}
-              className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 text-xs font-mono text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
-            />
-            <button
-              type="submit"
-              disabled={loading || !userToken.trim()}
-              className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-bold text-white disabled:opacity-50 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
-            >
-              <span>Ampidiro</span>
-              <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <p className="text-[10px] text-slate-500">
-            Ao amin'ny Explorer: safidio ny App-nao &gt; kitiho ny <strong>"Generate Access Token"</strong> &gt; mariho ny <code>pages_show_list, pages_messaging, pages_read_engagement</code> &gt; apetaho eto.
+          <p className="text-[11px] text-slate-300 leading-relaxed">
+            Araka ny efa nangatahina, ny Token sy ny alalana rehetra amin'ny <strong>Meta Graph API</strong> dia alaina ho azy mivantana amin'ny alalan'ny <strong>Facebook Login</strong> ambony. Tsy mila mandika na mampiditra "EAA..." mitokana intsony ianao.
           </p>
-        </form>
+        </div>
 
         {/* Retrieved Pages Feedback */}
         {connectedUser && (
