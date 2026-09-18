@@ -8,8 +8,8 @@ const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 function isRealMetaToken(token?: string): boolean {
   if (!token) return false;
   const t = token.trim();
-  if (t.startsWith('EAAQ...dummy') || t.startsWith('EAATestSandboxToken') || t.length < 20) return false;
-  return t.startsWith('EAA');
+  if (t.startsWith('EAAQ...dummy') || t.startsWith('EAATestSandboxToken')) return false;
+  return t.startsWith('EAA') || t.length > 30;
 }
 const pageTokensStore: Record<string, string> = {};
 
