@@ -17,6 +17,7 @@ import {
   Sparkles,
   Info,
   Trash2,
+  Flame,
 } from 'lucide-react';
 import { FacebookPage } from '../types.js';
 import { localPersistence } from '../lib/storage.js';
@@ -29,6 +30,7 @@ interface FacebookSettingsViewProps {
   onConnectRealPage?: (pageData: any) => Promise<any>;
   onDeletePage?: (pageId: string) => Promise<void>;
   onDeleteDemoPages?: () => Promise<void>;
+  onOpenFacebookLogin?: () => void;
 }
 
 export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
@@ -39,6 +41,7 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   onConnectRealPage,
   onDeletePage,
   onDeleteDemoPages,
+  onOpenFacebookLogin,
 }) => {
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -359,6 +362,52 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
           <Copy className="h-4 w-4" />
           <span>{copiedField === 'all_links' ? 'Voadika avokoa !' : 'Adikao daholo ireo Rohy (Copier Tout)'}</span>
         </button>
+      </div>
+
+      {/* Featured Card: Facebook Login & Firebase Database */}
+      <div className="rounded-2xl border-2 border-blue-500/50 bg-gradient-to-r from-blue-950/70 via-slate-900 to-indigo-950/70 p-5 shadow-2xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3.5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1877F2] text-white shadow-lg shadow-blue-600/40 shrink-0">
+              <Facebook className="h-7 w-7 fill-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white">Facebook Login (Meta OAuth & Firebase)</h3>
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-500/40 px-2.5 py-0.5 text-[10px] font-bold text-amber-300">
+                  <Flame className="h-3 w-3 text-amber-400" />
+                  Firebase Firestore Actif
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Tsindrio ny bokotra <strong>"Se connecter avec Facebook"</strong> mba hidirana sy hampidirana avy hatrany ny Pages Facebook-nao.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={onOpenFacebookLogin ? onOpenFacebookLogin : () => {}}
+            className="flex items-center justify-center gap-2 rounded-xl bg-[#1877F2] hover:bg-[#166fe5] px-5 py-3 text-xs font-bold text-white shadow-xl shadow-blue-600/40 transition-all active:scale-95 whitespace-nowrap self-start sm:self-auto cursor-pointer"
+          >
+            <Facebook className="h-4 w-4 fill-white" />
+            <span>Se connecter avec Facebook</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-[11px]">
+          <div className="rounded-xl border border-slate-800/80 bg-slate-950/80 p-2.5">
+            <span className="text-slate-400 block text-[10px]">🔥 Base de données :</span>
+            <span className="font-bold text-amber-400">Firebase Firestore (Cloud)</span>
+          </div>
+          <div className="rounded-xl border border-slate-800/80 bg-slate-950/80 p-2.5">
+            <span className="text-slate-400 block text-[10px]">🔒 Fiarovana :</span>
+            <span className="font-bold text-emerald-400">OAuth 2.0 & Graph API v20.0</span>
+          </div>
+          <div className="rounded-xl border border-slate-800/80 bg-slate-950/80 p-2.5">
+            <span className="text-slate-400 block text-[10px]">⚡ Fampifandraisana :</span>
+            <span className="font-bold text-blue-400">Popup & Token Direct</span>
+          </div>
+        </div>
       </div>
 
       {/* Section 0: Meta App ID & Secret Configuration */}

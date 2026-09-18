@@ -1,0 +1,86 @@
+{
+  "entities": {
+    "users": {
+      "title": "User Profiles",
+      "description": "User profiles connected via Facebook or Admin account",
+      "properties": {
+        "id": { "type": "string" },
+        "facebook_id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name"]
+    },
+    "facebook_pages": {
+      "title": "Facebook Pages",
+      "description": "Connected Facebook/Meta pages for automated assistant management",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "page_id": { "type": "string" },
+        "page_name": { "type": "string" },
+        "category": { "type": "string" },
+        "avatar_url": { "type": "string" },
+        "fan_count": { "type": "number" },
+        "has_access_token": { "type": "boolean" },
+        "token_status": { "type": "string" },
+        "token_expires_at": { "type": "string" },
+        "status": { "type": "string" },
+        "connected_at": { "type": "string" },
+        "is_real_page": { "type": "boolean" },
+        "is_real": { "type": "boolean" }
+      },
+      "required": ["id", "page_id", "page_name"]
+    },
+    "products": {
+      "title": "Catalog Products",
+      "description": "Products available for sales conversations and orders",
+      "properties": {
+        "id": { "type": "string" },
+        "page_id": { "type": "string" },
+        "name": { "type": "string" },
+        "reference": { "type": "string" },
+        "price": { "type": "number" },
+        "description": { "type": "string" },
+        "stock": { "type": "number" },
+        "category": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "conversations": {
+      "title": "Customer Conversations",
+      "description": "Messenger/comment customer conversations and orders",
+      "properties": {
+        "id": { "type": "string" },
+        "page_id": { "type": "string" },
+        "customer_name": { "type": "string" },
+        "customer_id": { "type": "string" },
+        "channel": { "type": "string" },
+        "status": { "type": "string" },
+        "unread_count": { "type": "number" },
+        "last_message": { "type": "string" },
+        "updated_at": { "type": "string" }
+      },
+      "required": ["id", "customer_name"]
+    },
+    "system_config": {
+      "title": "System Configuration",
+      "description": "System configuration, Meta App credentials and webhook tokens",
+      "properties": {
+        "meta_app_id": { "type": "string" },
+        "meta_app_secret": { "type": "string" },
+        "meta_verify_token": { "type": "string" },
+        "updated_at": { "type": "string" }
+      }
+    }
+  },
+  "firestoreRules": {
+    "description": "Firestore security rules allowing read/write with database protection",
+    "collections": ["users", "facebook_pages", "products", "conversations", "system_config"]
+  }
+}

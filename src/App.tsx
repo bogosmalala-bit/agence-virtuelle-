@@ -13,7 +13,9 @@ import { AssistantSettingsView } from './components/AssistantSettingsView.js';
 import { FacebookSettingsView } from './components/FacebookSettingsView.js';
 import { NotificationsView } from './components/NotificationsView.js';
 import { SystemConfigView } from './components/SystemConfigView.js';
+import { FacebookLoginModal } from './components/FacebookLoginModal.js';
 import { localPersistence } from './lib/storage.js';
+import { firestoreService } from './lib/firestoreService.js';
 import {
   FacebookPage,
   AssistantSettings,
@@ -33,6 +35,7 @@ import {
 export function App() {
   const [currentView, setCurrentView] = useState<string>('dashboard');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isFacebookLoginModalOpen, setIsFacebookLoginModalOpen] = useState<boolean>(false);
 
   // Application Data States
   const [activePage, setActivePage] = useState<FacebookPage | null>(null);
@@ -661,6 +664,7 @@ export function App() {
           onNavigate={handleNavigation}
           isSidebarCollapsed={isSidebarCollapsed}
           onToggleSidebar={handleToggleSidebar}
+          onOpenFacebookLogin={() => setIsFacebookLoginModalOpen(true)}
         />
 
         {/* Scrollable View Container */}
@@ -769,6 +773,7 @@ export function App() {
                 onConnectRealPage={handleConnectRealPage}
                 onDeletePage={handleDeletePage}
                 onDeleteDemoPages={handleDeleteDemoPages}
+                onOpenFacebookLogin={() => setIsFacebookLoginModalOpen(true)}
               />
             )}
 
@@ -786,6 +791,23 @@ export function App() {
           </div>
         </main>
       </div>
+
+      {/* Facebook Login & Meta Import Modal */}
+      <FacebookLoginModal
+        isOpen={isFacebookLoginModalOpen}
+        onClose={() => setIsFacebookLoginModalOpen(false)}
+        onPagesImported={(importedPages) => {
+          setPages((prev) => {
+            const merged = [...importedPages, ...prev.filter((p) => !importedPages.some((ip) => ip.page_id === p.page_id))];
+            localPersistence.setPages(merged);
+            return merged;
+          });
+          if (importedPages.length > 0) {
+            setActivePage(importedPages[0]);
+            localPersistence.setActivePageId(importedPages[0].id);
+          }
+        }}
+      />
     </div>
   );
 }

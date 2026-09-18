@@ -13,6 +13,8 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Facebook,
+  Flame,
 } from 'lucide-react';
 import { FacebookPage, AssistantSettings, NotificationLog, AIApiKeyConfig } from '../types.js';
 
@@ -29,6 +31,7 @@ interface HeaderProps {
   onNavigate: (view: string) => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  onOpenFacebookLogin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -44,6 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
   onNavigate,
   isSidebarCollapsed = false,
   onToggleSidebar,
+  onOpenFacebookLogin,
 }) => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showPageMenu, setShowPageMenu] = useState(false);
@@ -229,6 +233,26 @@ export const Header: React.FC<HeaderProps> = ({
           {hasQuotaLimit && (
             <span className="flex h-2 w-2 rounded-full bg-amber-400" title="Rotation active" />
           )}
+        </button>
+
+        {/* Firebase Firestore Indicator */}
+        <div
+          className="hidden sm:flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-950/20 px-2.5 py-1 text-[11px] font-semibold text-amber-300"
+          title="Base de données Firebase Firestore active et connectée"
+        >
+          <Flame className="h-3.5 w-3.5 text-amber-400" />
+          <span>Firestore</span>
+        </div>
+
+        {/* Facebook Login Action Button */}
+        <button
+          onClick={onOpenFacebookLogin ? onOpenFacebookLogin : () => onNavigate('facebook')}
+          className="flex items-center gap-1.5 rounded-lg bg-[#1877F2] hover:bg-[#166fe5] px-3 py-1.5 text-xs font-bold text-white shadow-sm shadow-blue-600/30 transition-all active:scale-95"
+          title="Se connecter avec Facebook / Meta OAuth"
+        >
+          <Facebook className="h-3.5 w-3.5 fill-white" />
+          <span className="hidden sm:inline">Facebook Login</span>
+          <span className="sm:hidden">Login</span>
         </button>
 
         {/* Real Meta Graph API Sync Button */}
