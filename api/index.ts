@@ -1,9 +1,9 @@
-// Standalone Vercel Serverless Function entry point
-// Handles Meta Webhook Verification and Event Receiving with 100% resilience
-export default async function handler(req: any, res: any) {
+import app from '../server.ts';
+
+export default function handler(req: any, res: any) {
   const url = req.url || '';
 
-  // 1. Meta Webhook Verification (GET) and Event Ingestion (POST)
+  // 1. Meta Webhook Direct Verification (GET) and Ingestion (POST)
   if (url.includes('/webhooks/facebook') || url.includes('/api/webhooks/facebook')) {
     if (req.method === 'GET') {
       const query = req.query || {};
@@ -32,25 +32,6 @@ export default async function handler(req: any, res: any) {
     }
   }
 
-  // 2. Fallback to bundled server if available
-  try {
-    const { createRequire } = await import('module');
-    const require = createRequire(import.meta.url);
-    const path = await import('path');
-    const fs = await import('fs');
-    
-    const serverPath = path.resolve(process.cwd(), 'dist/server.cjs');
-    if (fs.existsSync(serverPath)) {
-      const serverModule = require(serverPath);
-      const app = serverModule.default || serverModule.app || serverModule;
-      if (typeof app === 'function') {
-        return app(req, res);
-      }
-    }
-  } catch (err) {
-    console.warn('[VERCEL SERVER FALLBACK WARNING]', err);
-  }
-
-  // If no specific route matched
-  return res.status(200).json({ status: 'ok', message: 'Vercel API Gateway Active' });
+  // 2. All standard API endpoints (/api/me, /api/conversations, /api/products, etc.)
+  return app(req, res);
 }

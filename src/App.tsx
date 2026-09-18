@@ -110,23 +110,31 @@ export function App() {
         fetch('/api/notifications').then((r) => r.json()),
       ]);
 
-      setActivePage(meRes.activePage);
-      setSettings(meRes.assistantSettings);
-      setPages(pagesRes);
-      setStats(statsRes);
-      setProducts(productsRes);
-      setOrders(ordersRes);
-      setConversations(convsRes);
-      if (convsRes.length > 0 && !activeConversationRef.current) {
-        setActiveConversation(convsRes[0]);
-        loadConversationMessages(convsRes[0].id);
+      if (meRes?.activePage) {
+        setActivePage(meRes.activePage);
       }
-      setComments(commentsRes);
-      setRules(rulesRes);
-      setScheduledPosts(postsRes);
-      setInsights(insightsRes);
-      setApiKeys(keysRes);
-      setNotifications(notifsRes);
+      if (meRes?.assistantSettings) {
+        setSettings(meRes.assistantSettings);
+      }
+      if (Array.isArray(pagesRes)) setPages(pagesRes);
+      if (statsRes && typeof statsRes === 'object' && 'totalConversations' in statsRes) {
+        setStats(statsRes);
+      }
+      if (Array.isArray(productsRes)) setProducts(productsRes);
+      if (Array.isArray(ordersRes)) setOrders(ordersRes);
+      if (Array.isArray(convsRes)) {
+        setConversations(convsRes);
+        if (convsRes.length > 0 && !activeConversationRef.current) {
+          setActiveConversation(convsRes[0]);
+          loadConversationMessages(convsRes[0].id);
+        }
+      }
+      if (Array.isArray(commentsRes)) setComments(commentsRes);
+      if (Array.isArray(rulesRes)) setRules(rulesRes);
+      if (Array.isArray(postsRes)) setScheduledPosts(postsRes);
+      if (insightsRes && typeof insightsRes === 'object') setInsights(insightsRes);
+      if (Array.isArray(keysRes)) setApiKeys(keysRes);
+      if (Array.isArray(notifsRes)) setNotifications(notifsRes);
     } catch (err) {
       console.error('Error fetching initial data:', err);
     }
@@ -139,20 +147,22 @@ export function App() {
     const interval = setInterval(async () => {
       try {
         const [statsRes, ordersRes, convsRes, notifsRes, keysRes, commentsRes] = await Promise.all([
-          fetch('/api/dashboard/stats').then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/orders').then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/conversations').then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/notifications').then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/ai/keys').then((r) => (r.ok ? r.json() : null)),
-          fetch('/api/comments').then((r) => (r.ok ? r.json() : null)),
+          fetch('/api/dashboard/stats').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch('/api/orders').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch('/api/conversations').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch('/api/notifications').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch('/api/ai/keys').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          fetch('/api/comments').then((r) => (r.ok ? r.json() : null)).catch(() => null),
         ]);
 
-        if (statsRes) setStats(statsRes);
-        if (ordersRes) setOrders(ordersRes);
-        if (convsRes) setConversations(convsRes);
-        if (notifsRes) setNotifications(notifsRes);
-        if (keysRes) setApiKeys(keysRes);
-        if (commentsRes) setComments(commentsRes);
+        if (statsRes && typeof statsRes === 'object' && 'totalConversations' in statsRes) {
+          setStats(statsRes);
+        }
+        if (Array.isArray(ordersRes)) setOrders(ordersRes);
+        if (Array.isArray(convsRes)) setConversations(convsRes);
+        if (Array.isArray(notifsRes)) setNotifications(notifsRes);
+        if (Array.isArray(keysRes)) setApiKeys(keysRes);
+        if (Array.isArray(commentsRes)) setComments(commentsRes);
 
         // Active thread real-time update
         if (activeConversationRef.current) {
