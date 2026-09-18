@@ -37,11 +37,40 @@ export function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isFacebookLoginModalOpen, setIsFacebookLoginModalOpen] = useState<boolean>(false);
 
+  const defaultAssistantSettings: AssistantSettings = {
+    id: 'set_sarah',
+    page_id: 'page_main',
+    name: 'Sarah',
+    tone: 'CHALEUREUX',
+    primary_language: 'MALAGASY_FRENCH',
+    custom_instructions: '',
+    assistance_type: 'VENTE',
+    is_active: true,
+    operator_phone: '0340000000',
+    notification_channel: 'ALL',
+    fcm_enabled: true,
+    sms_enabled: true,
+    auto_handoff_on_frustration: true,
+    auto_post_enabled: true,
+    comment_auto_reply_enabled: true,
+    comment_private_reply_enabled: true,
+    comment_moderation_enabled: true,
+  };
+
   // Application Data States
   const [activePage, setActivePage] = useState<FacebookPage | null>(null);
   const [pages, setPages] = useState<FacebookPage[]>([]);
-  const [settings, setSettings] = useState<AssistantSettings | null>(null);
-  const [stats, setStats] = useState<any>(null);
+  const [settings, setSettings] = useState<AssistantSettings>(defaultAssistantSettings);
+  const [stats, setStats] = useState<any>({
+    totalConversations: 0,
+    activeConversations: 0,
+    totalOrders: 0,
+    pendingOrders: 0,
+    totalRevenue: 0,
+    recentMessagesCount: 0,
+    recentCommentsCount: 0,
+    aiResponseRate: 98,
+  });
   const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -58,6 +87,21 @@ export function App() {
   const [insights, setInsights] = useState<AudienceInsight[]>([]);
   const [apiKeys, setApiKeys] = useState<AIApiKeyConfig[]>([]);
   const [notifications, setNotifications] = useState<NotificationLog[]>([]);
+
+  // Safe JSON Fetch helper preventing crashes on HTML or non-200 responses
+  const safeFetchJson = async <T,>(url: string, fallback: T): Promise<T> => {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return fallback;
+      const text = await res.text();
+      if (!text || (!text.trim().startsWith('{') && !text.trim().startsWith('['))) {
+        return fallback;
+      }
+      return JSON.parse(text) as T;
+    } catch {
+      return fallback;
+    }
+  };
 
   // Sidebar Collapse and Mobile Drawer State
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
@@ -113,18 +157,18 @@ export function App() {
         keysRes,
         notifsRes,
       ] = await Promise.all([
-        fetch('/api/me').then((r) => r.json()),
-        fetch('/api/facebook/pages').then((r) => r.json()),
-        fetch('/api/dashboard/stats').then((r) => r.json()),
-        fetch('/api/products').then((r) => r.json()),
-        fetch('/api/orders').then((r) => r.json()),
-        fetch('/api/conversations').then((r) => r.json()),
-        fetch('/api/comments').then((r) => r.json()),
-        fetch('/api/moderation/rules').then((r) => r.json()),
-        fetch('/api/posts/scheduled').then((r) => r.json()),
-        fetch('/api/posts/audience-insights').then((r) => r.json()),
-        fetch('/api/ai/keys').then((r) => r.json()),
-        fetch('/api/notifications').then((r) => r.json()),
+        safeFetchJson<any>('/api/me', null),
+        safeFetchJson<FacebookPage[]>('/api/facebook/pages', []),
+        safeFetchJson<any>('/api/dashboard/stats', null),
+        safeFetchJson<Product[]>('/api/products', []),
+        safeFetchJson<Order[]>('/api/orders', []),
+        safeFetchJson<Conversation[]>('/api/conversations', []),
+        safeFetchJson<FacebookComment[]>('/api/comments', []),
+        safeFetchJson<ModerationRule[]>('/api/moderation/rules', []),
+        safeFetchJson<ScheduledPost[]>('/api/posts/scheduled', []),
+        safeFetchJson<AudienceInsight[]>('/api/posts/audience-insights', []),
+        safeFetchJson<AIApiKeyConfig[]>('/api/ai/keys', []),
+        safeFetchJson<NotificationLog[]>('/api/notifications', []),
       ]);
 
       if (meRes?.activePage) {
@@ -134,7 +178,7 @@ export function App() {
       if (meRes?.assistantSettings) {
         setSettings(meRes.assistantSettings);
       }
-      if (Array.isArray(pagesRes)) {
+      if (Array.isArray(pagesRes) && pagesRes.length > 0) {
         // Merge real pages from localStorage if server restarted
         if (localPages && localPages.length > 0) {
           const merged = [...localPages.filter((lp) => lp.is_real_page)];
@@ -190,16 +234,16 @@ export function App() {
   useEffect(() => {
     loadInitialData();
 
-    // Real-Time Polling loop every 3.5 seconds
+    // Real-Time Polling loop every 4.5 seconds
     const interval = setInterval(async () => {
       try {
         const [statsRes, ordersRes, convsRes, notifsRes, keysRes, commentsRes] = await Promise.all([
-          fetch('/api/dashboard/stats').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch('/api/orders').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch('/api/conversations').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch('/api/notifications').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch('/api/ai/keys').then((r) => (r.ok ? r.json() : null)).catch(() => null),
-          fetch('/api/comments').then((r) => (r.ok ? r.json() : null)).catch(() => null),
+          safeFetchJson('/api/dashboard/stats', null),
+          safeFetchJson('/api/orders', null),
+          safeFetchJson('/api/conversations', null),
+          safeFetchJson('/api/notifications', null),
+          safeFetchJson('/api/ai/keys', null),
+          safeFetchJson('/api/comments', null),
         ]);
 
         if (statsRes && typeof statsRes === 'object' && 'totalConversations' in statsRes) {
@@ -213,18 +257,15 @@ export function App() {
 
         // Active thread real-time update
         if (activeConversationRef.current) {
-          const convRes = await fetch(`/api/conversations/${activeConversationRef.current.id}`);
-          if (convRes.ok) {
-            const data = await convRes.json();
-            if (data?.messages) {
-              setMessages(data.messages);
-            }
+          const convRes = await safeFetchJson<any>(`/api/conversations/${activeConversationRef.current.id}`, null);
+          if (convRes?.messages && Array.isArray(convRes.messages)) {
+            setMessages(convRes.messages);
           }
         }
       } catch {
         // Quiet fail on network flutter
       }
-    }, 3500);
+    }, 4500);
 
     return () => clearInterval(interval);
   }, []);
@@ -640,8 +681,8 @@ export function App() {
         currentView={currentView}
         onNavigate={handleNavigation}
         page={activePage}
-        unreadCount={conversations.filter((c) => c.status === 'HANDOFF_HUMAN').length}
-        pendingOrdersCount={orders.filter((o) => o.status === 'NOUVELLE').length}
+        unreadCount={(conversations || []).filter((c) => c?.status === 'HANDOFF_HUMAN').length}
+        pendingOrdersCount={(orders || []).filter((o) => o?.status === 'NOUVELLE').length}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
         isMobileOpen={isMobileSidebarOpen}

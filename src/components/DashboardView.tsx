@@ -35,16 +35,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   page,
   settings,
   stats,
-  conversations,
-  orders,
-  apiKeys,
+  conversations = [],
+  orders = [],
+  apiKeys = [],
   isSyncing = false,
   onNavigate,
   onToggleAi,
   onSyncFacebook,
 }) => {
-  const activeKey = apiKeys.find((k) => k.status === 'ACTIVE');
-  const quotaLimitKeys = apiKeys.filter((k) => k.status === 'QUOTA_LIMIT');
+  const safeConversations = Array.isArray(conversations) ? conversations : [];
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const safeApiKeys = Array.isArray(apiKeys) ? apiKeys : [];
+
+  const activeKey = safeApiKeys.find((k) => k.status === 'ACTIVE');
+  const quotaLimitKeys = safeApiKeys.filter((k) => k.status === 'QUOTA_LIMIT');
 
   return (
     <div className="space-y-6">

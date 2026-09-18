@@ -38,8 +38,8 @@ export const Header: React.FC<HeaderProps> = ({
   page,
   pages = [],
   settings,
-  notifications,
-  apiKeys,
+  notifications = [],
+  apiKeys = [],
   isSyncing = false,
   onToggleAi,
   onSyncFacebook,
@@ -51,8 +51,12 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showPageMenu, setShowPageMenu] = useState(false);
-  const activeKey = apiKeys.find((k) => k.status === 'ACTIVE');
-  const hasQuotaLimit = apiKeys.some((k) => k.status === 'QUOTA_LIMIT');
+  const safeApiKeys = Array.isArray(apiKeys) ? apiKeys : [];
+  const safeNotifications = Array.isArray(notifications) ? notifications : [];
+  const safePages = Array.isArray(pages) ? pages : [];
+
+  const activeKey = safeApiKeys.find((k) => k.status === 'ACTIVE');
+  const hasQuotaLimit = safeApiKeys.some((k) => k.status === 'QUOTA_LIMIT');
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-800/80 bg-slate-900/95 px-3 py-3 backdrop-blur-md md:px-6">
