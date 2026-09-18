@@ -719,7 +719,10 @@ Générez une réponse courte, polie et vendeuse au format JSON :
   });
 
   app.get('/api/facebook/pages', (req, res) => {
-    res.json(db.facebookPages);
+    const realPages = db.facebookPages.filter(
+      (p) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+    );
+    res.json(realPages);
   });
 
   app.post('/api/facebook/pages/select', (req, res) => {

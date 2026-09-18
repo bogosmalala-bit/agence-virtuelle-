@@ -369,9 +369,12 @@ const STORAGE_FILES = [
 
 export function saveDb(): void {
   try {
+    const realPages = (db.facebookPages || []).filter(
+      (p: any) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+    );
     const payload = {
       systemConfig: db.systemConfig,
-      facebookPages: db.facebookPages,
+      facebookPages: realPages,
       activePageId: db.activePageId,
       assistantSettings: db.assistantSettings,
       user: db.user,
