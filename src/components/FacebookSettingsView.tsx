@@ -58,20 +58,35 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   const [showSecret, setShowSecret] = useState<boolean>(false);
   const [isSavingAppConfig, setIsSavingAppConfig] = useState<boolean>(false);
   const [appConfigStatus, setAppConfigStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<'vercel' | 'current' | 'custom'>('vercel');
+  const [customDomainInput, setCustomDomainInput] = useState<string>('https://agence-virtuelle.vercel.app');
 
-  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://votre-domaine.com';
-  const host = typeof window !== 'undefined' ? window.location.hostname : 'votre-domaine.com';
+  const currentOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://agence-virtuelle.vercel.app';
+  
+  const effectiveOrigin = selectedDomain === 'vercel'
+    ? 'https://agence-virtuelle.vercel.app'
+    : selectedDomain === 'current'
+    ? currentOrigin
+    : (customDomainInput.trim() || 'https://agence-virtuelle.vercel.app');
 
-  // Meta Developer Required URLs
-  const oauthRedirectUri = `${origin}/api/auth/facebook/callback`;
-  const oauthRedirectUriAlt = `${origin}/auth/facebook/callback`;
-  const siteUrl = `${origin}/`;
-  const privacyPolicyUrl = `${origin}/privacy-policy`;
-  const termsUrl = `${origin}/terms`;
-  const dataDeletionCallbackUrl = `${origin}/api/facebook/data-deletion`;
-  const dataDeletionInstructionsUrl = `${origin}/data-deletion`;
-  const deauthorizeCallbackUrl = `${origin}/api/facebook/deauthorize`;
-  const webhookUrl = `${origin}/api/webhooks/facebook`;
+  let effectiveHost = 'agence-virtuelle.vercel.app';
+  try {
+    effectiveHost = new URL(effectiveOrigin).hostname;
+  } catch {}
+
+  // Firebase Built-in OAuth Handler (Already authorized in Firebase!)
+  const firebaseAuthHandlerUri = 'https://project-223f4dee-65dd-4c9e-8cc.firebaseapp.com/__/auth/handler';
+
+  // Meta Developer Required URLs computed with effective domain
+  const oauthRedirectUri = `${effectiveOrigin}/api/auth/facebook/callback`;
+  const oauthRedirectUriAlt = `${effectiveOrigin}/auth/facebook/callback`;
+  const siteUrl = `${effectiveOrigin}/`;
+  const privacyPolicyUrl = `${effectiveOrigin}/privacy-policy`;
+  const termsUrl = `${effectiveOrigin}/terms`;
+  const dataDeletionCallbackUrl = `${effectiveOrigin}/api/facebook/data-deletion`;
+  const dataDeletionInstructionsUrl = `${effectiveOrigin}/data-deletion`;
+  const deauthorizeCallbackUrl = `${effectiveOrigin}/api/facebook/deauthorize`;
+  const webhookUrl = `${effectiveOrigin}/api/webhooks/facebook`;
   const verifyToken = 'assistante_virtuelle_webhook_verify_token';
 
   const requiredScopes = [
@@ -207,19 +222,25 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   const copyAllLinks = () => {
     const fullSummary = `=== LIENS & CONFIGURATION FACEBOOK LOGIN / META DEVELOPERS ===
 Site URL (URL du site web) : ${siteUrl}
-App Domain (Domaine de l'application) : ${host}
+App Domain (Domaine de l'application) : ${effectiveHost}
 
 0. IDENTIFIANT DE L'APPLICATION (APP ID) :
 ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
 
 1. FACEBOOK LOGIN > PARAMÈTRES (SETTINGS) :
-- URI de redirection OAuth valides :
+- URI de redirection OAuth Firebase Auth (CRITIQUE pour Firebase Facebook Login) :
+  ${firebaseAuthHandlerUri}
+- URI de redirection OAuth valides (Vercel & App) :
   ${oauthRedirectUri}
   ${oauthRedirectUriAlt}
 - URL de rappel de désautorisation :
   ${deauthorizeCallbackUrl}
 
 2. PARAMÈTRES > GÉNÉRAL (BASIC SETTINGS) :
+- Domaine de l'application (App Domain) :
+  ${effectiveHost}
+- URL du site web (Site URL) :
+  ${siteUrl}
 - URL de la Politique de Confidentialité :
   ${privacyPolicyUrl}
 - URL des Conditions d'Utilisation :
@@ -362,6 +383,59 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
           <Copy className="h-4 w-4" />
           <span>{copiedField === 'all_links' ? 'Voadika avokoa !' : 'Adikao daholo ireo Rohy (Copier Tout)'}</span>
         </button>
+      </div>
+
+      {/* Domain Switcher Selector */}
+      <div className="rounded-2xl border border-blue-500/40 bg-gradient-to-r from-slate-900 via-blue-950/40 to-slate-900 p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Globe className="h-4 w-4 text-blue-400" />
+            <span className="text-xs font-bold text-white">Safidio ny Domaine hampiasaina amin'ny Rohy Meta :</span>
+          </div>
+          <span className="text-[11px] text-emerald-400 font-bold bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+            Active: {effectiveOrigin}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <button
+            type="button"
+            onClick={() => setSelectedDomain('vercel')}
+            className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+              selectedDomain === 'vercel'
+                ? 'border-blue-500 bg-blue-600/20 text-white shadow-md shadow-blue-500/10'
+                : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+            }`}
+          >
+            <div>
+              <span className="font-bold flex items-center gap-1.5">
+                <Globe className="h-3.5 w-3.5 text-blue-400" />
+                Domaine Vercel Production
+              </span>
+              <span className="text-[11px] text-blue-300 block font-mono mt-0.5">https://agence-virtuelle.vercel.app</span>
+            </div>
+            {selectedDomain === 'vercel' && <CheckCircle2 className="h-4 w-4 text-blue-400" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSelectedDomain('current')}
+            className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+              selectedDomain === 'current'
+                ? 'border-blue-500 bg-blue-600/20 text-white shadow-md shadow-blue-500/10'
+                : 'border-slate-800 bg-slate-950/60 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+            }`}
+          >
+            <div>
+              <span className="font-bold flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5 text-purple-400" />
+                Domaine Preview / Dev
+              </span>
+              <span className="text-[11px] text-slate-400 block font-mono mt-0.5 truncate max-w-[240px]">{currentOrigin}</span>
+            </div>
+            {selectedDomain === 'current' && <CheckCircle2 className="h-4 w-4 text-blue-400" />}
+          </button>
+        </div>
       </div>
 
       {/* Featured Card: Facebook Login & Firebase Database */}
@@ -577,14 +651,46 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
         </div>
 
         <div className="space-y-3.5 text-xs">
-          {/* Valid OAuth Redirect URI #1 */}
+          {/* CRITICAL Firebase OAuth Handler URI */}
+          <div className="rounded-xl border-2 border-amber-500/50 bg-gradient-to-r from-amber-950/40 via-slate-900 to-amber-950/20 p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-amber-300 flex items-center gap-1.5">
+                <Flame className="h-4 w-4 text-amber-400" />
+                <span>URI de redirection Firebase Auth (TENA ILAY MANAN-DANJA) :</span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/40 font-bold">
+                  Firebase OAuth Handler
+                </span>
+              </label>
+              <span className="text-[10px] text-amber-300/80 font-semibold">Tsy maintsy ampidirina ao amin'ny Meta</span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              💡 <strong>Nahoana no tena ilaina ity rohy ity ?</strong> Rehefa manao Facebook Login amin'ny Firebase ianao, ity rohy ity no ampiasain'ny Firebase handraisana ny connexion. <em>(Efa nahazo alalana ho azy ao amin'ny Firebase ity, ka tsy mila manova na inona na inona ao amin'ny Firebase Console ianao !)</em>
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={firebaseAuthHandlerUri}
+                className="flex-1 rounded-xl border border-amber-500/40 bg-slate-950 px-3.5 py-2 text-amber-300 font-mono text-xs focus:outline-none select-all font-bold"
+              />
+              <button
+                onClick={() => copyToClipboard(firebaseAuthHandlerUri, 'firebase_handler')}
+                className="flex items-center gap-1 rounded-xl border border-amber-500/50 bg-amber-600/30 px-3 py-2 text-xs font-bold text-amber-200 hover:bg-amber-600/50 hover:text-white"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                <span>{copiedField === 'firebase_handler' ? 'Copié !' : 'Copier'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Valid OAuth Redirect URI #1 (Vercel / Selected Domain) */}
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="font-bold text-slate-300 flex items-center gap-1.5">
-                <span>URI de redirection OAuth valides (Valid OAuth Redirect URI) :</span>
-                <span className="text-[10px] text-emerald-400 font-semibold">(Fototra / Principal)</span>
+                <span>URI de redirection OAuth valides ({selectedDomain === 'vercel' ? 'Vercel Production' : 'App'}) :</span>
+                <span className="text-[10px] text-emerald-400 font-semibold">(Callback API)</span>
               </label>
-              <span className="text-[10px] text-slate-500">Ampidiro ao amin'ny Valid OAuth Redirect URIs</span>
+              <span className="text-[10px] text-slate-500">Valid OAuth Redirect URIs</span>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -682,11 +788,11 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
               <input
                 type="text"
                 readOnly
-                value={host}
+                value={effectiveHost}
                 className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-300 font-mono text-xs focus:outline-none select-all"
               />
               <button
-                onClick={() => copyToClipboard(host, 'host')}
+                onClick={() => copyToClipboard(effectiveHost, 'host')}
                 className="rounded-xl border border-slate-800 bg-slate-950 px-2.5 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 <Copy className="h-3.5 w-3.5" />
