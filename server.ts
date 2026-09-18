@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { createServer as createViteServer } from 'vite';
 
 import { db } from './server/db.js';
 import {
@@ -32,23 +31,34 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // ==========================================
 // META WEBHOOKS (Verification & Reception)
 // ==========================================
-  app.get('/api/webhooks/facebook', (req, res) => {
+  const handleWebhookVerification = (req: express.Request, res: express.Response) => {
     const mode = req.query['hub.mode'] as string | undefined;
     const token = req.query['hub.verify_token'] as string | undefined;
     const challenge = req.query['hub.challenge'] as string | undefined;
 
-    const expectedVerifyToken =
-      process.env.META_VERIFY_TOKEN || 'assistante_virtuelle_webhook_verify_token';
+    const acceptedTokens = [
+      'assistante_virtuelle_webhook_verify_token',
+      db.systemConfig?.meta_verify_token,
+      process.env.META_VERIFY_TOKEN,
+    ].filter(Boolean);
 
-    const result = verifyMetaWebhook(mode, token, challenge, expectedVerifyToken);
-    if (result.isValid && result.challenge) {
-      console.log('[META WEBHOOK] Verified successfully with Hub challenge');
-      return res.status(200).send(result.challenge);
+    console.log(`[META WEBHOOK VERIFY REQUEST] mode=${mode}, token=${token}, challenge=${challenge}`);
+
+    if (mode === 'subscribe' && challenge && token && acceptedTokens.includes(token)) {
+      console.log('[META WEBHOOK] Verified successfully with Hub challenge:', challenge);
+      // Meta strictly expects raw text challenge with 200 OK
+      res.setHeader('Content-Type', 'text/plain');
+      return res.status(200).send(challenge);
     }
-    return res.status(403).send('Forbidden: Invalid Verify Token');
-  });
 
-  app.post('/api/webhooks/facebook', async (req, res) => {
+    console.warn('[META WEBHOOK] Verification rejected. Received token:', token, 'Accepted tokens:', acceptedTokens);
+    return res.status(403).send('Forbidden: Invalid Verify Token');
+  };
+
+  app.get('/api/webhooks/facebook', handleWebhookVerification);
+  app.get('/webhooks/facebook', handleWebhookVerification);
+
+  const handleWebhookPost = async (req: express.Request, res: express.Response) => {
     const body = req.body;
     console.log('[META WEBHOOK EVENT RECEIVED]', JSON.stringify(body).slice(0, 300));
 
@@ -93,7 +103,10 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
       return res.status(200).send('EVENT_RECEIVED');
     }
     return res.sendStatus(404);
-  });
+  };
+
+  app.post('/api/webhooks/facebook', handleWebhookPost);
+  app.post('/webhooks/facebook', handleWebhookPost);
 
   app.get('/api/webhooks/logs', (req, res) => {
     res.json(db.webhookLogs);
@@ -1374,11 +1387,16 @@ Format de réponse JSON attendu :
     const PORT = 3000;
 
     if (process.env.NODE_ENV !== 'production') {
-      const vite = await createViteServer({
-        server: { middlewareMode: true },
-        appType: 'spa',
-      });
-      app.use(vite.middlewares);
+      try {
+        const { createServer: createViteServer } = await import('vite');
+        const vite = await createViteServer({
+          server: { middlewareMode: true },
+          appType: 'spa',
+        });
+        app.use(vite.middlewares);
+      } catch (err) {
+        console.warn('[VITE MIDDLEWARE SKIPPED]', err);
+      }
     } else {
       const distPath = path.join(process.cwd(), 'dist');
       app.use(express.static(distPath));
@@ -1392,8 +1410,15 @@ Format de réponse JSON attendu :
     });
   }
 
-  // Automatically start HTTP server unless executing in a Vercel Serverless environment
-  if (!process.env.VERCEL) {
+  // Automatically start HTTP server unless executing in a Serverless / Lambda environment
+  const isServerless = Boolean(
+    process.env.VERCEL ||
+    process.env.VERCEL_ENV ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT
+  );
+
+  if (!isServerless) {
     startServer();
   }
 

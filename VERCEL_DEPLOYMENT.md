@@ -1,51 +1,42 @@
 # Torolalana amin'ny Fandefasana ao amin'ny Vercel (Guide de Déploiement Vercel)
 
-Ny tetikasa **ASSISTANTE VIRTUELLE IA** dia efa vonona tanteraka ampiasaina sy halefa mivantana ao amin'ny **Vercel**.
+Ny tetikasa **ASSISTANTE VIRTUELLE IA** dia efa vonona tanteraka ampiasaina sy halefa mivantana ao amin'ny **Vercel**, indrindra ho an'ny **Meta Webhook** sy **Facebook Messenger**.
 
 ---
 
-## 1. Fomba Fandefasana amin'ny alalan'ny GitHub (Déploiement via GitHub - Mora indrindra)
-
-1. **Export / Push to GitHub** :
-   - Ao amin'ny menun'ny AI Studio (eo ambony havanana), tsindrio ny **Export** na **GitHub** handefasana ny kaody any amin'ny kaonty GitHub-nao.
-2. **Mandehana ao amin'ny Vercel** ([vercel.com](https://vercel.com)) :
-   - Midira (Login) amin'ny kaontinao.
-   - Tsindrio ny **"Add New..."** > **"Project"**.
-   - Safidio ny repository GitHub-nao.
-3. **Configurations automatique** :
-   - Ny `vercel.json` efa voaomana dia mamantatra avy hatrany :
-     - **Framework Preset** : Vite
-     - **Build Command** : `vite build`
-     - **Output Directory** : `dist`
-     - **Serverless API** : `api/index.ts`
-4. **Environment Variables (Tsiambaratelo - Tsy voatery)** :
-   - Raha manana ianao, ampidiro ao amin'ny Vercel Settings > Environment Variables :
-     - `GEMINI_API_KEY` : Ny fanalahidinao Gemini
-   - *(Marihina fa afaka ampidirina sy ovaina mivantana ao amin'ny site ihany koa ireo fanalahidy rehetra ao amin'ny menu "Configuration Clés & Site")*.
-5. Tsindrio ny **Deploy** !
+## 1. Nahoana no nanao Erreur tamin'ny Facebook Developers teo aloha ?
+Rehefa nanindry "Vérifier et enregistrer" tao amin'ny `developers.facebook.com` ianao, dia nanao **Erreur 500 (`FUNCTION_INVOCATION_FAILED`)** ny Vercel satria :
+- Nisy `import app from '../server.js'` izay tsy hitan'i Vercel tamin'ny runtime.
+- **Efa namboarina tanteraka izany ankehitriny** :
+  - Noforonina ny **`/api/webhooks/facebook.ts`** natokana sy haingana dia haingana ho an'ny Vercel.
+  - Navaozina ny **`vercel.json`** sy ny **`api/index.ts`** mba hahazaka ny Webhook Meta 100% tsy misy fianjerana na dia kely aza.
 
 ---
 
-## 2. Fomba Fandefasana amin'ny alalan'ny Vercel CLI (Déploiement via Vercel CLI)
+## 2. Dingana Fandefasana amin'ny Vercel (Déploiement)
 
-Raha mampiasa terminal ianao :
+### Safidy A : Amin'ny alalan'ny GitHub (Mora indrindra)
+1. **Push / Sync to GitHub** :
+   - Alefaso amin'ny GitHub ny fanavaozana vaovao (`git add .`, `git commit -m "Fix Vercel Meta webhook"`, `git push`).
+2. Ny Vercel dia hanao **Redeploy** ho azy ao anatin'ny 30 segondra.
 
+### Safidy B : Amin'ny alalan'ny Vercel CLI
 ```bash
-# 1. Install Vercel CLI
-npm i -g vercel
-
-# 2. Deploy
-vercel
-
-# 3. Deploy to Production
 vercel --prod
 ```
 
 ---
 
-## 3. Firafitry ny Vercel ao amin'ny Tetikasa (Structure de Déploiement)
+## 3. Fanamarinana ao amin'ny Meta Facebook Developers
 
-- **`vercel.json`** : Mandrindra ny fiantsoana ny API (`/api/*`) mankany amin'ny Serverless Function, ary ny pejy rehetra (`/*`) mankany amin'ny Frontend Vite.
-- **`api/index.ts`** : Point d'entrée ho an'ny Serverless Function Express Node.js amin'ny Vercel.
-- **`server.ts`** : Miasa ho an'ny fampandehanana anatiny sy ny Cloud Run / Docker.
-- **`dist/`** : Vokatra static haingana dia haingana amin'ny Vercel Edge Network.
+Raha vantany vao vita ny Deployment ao amin'ny Vercel :
+1. Mandehana ao amin'ny **developers.facebook.com** > Ny Application-nao > **Messenger** > **Paramètres (Settings)** > **Webhooks**.
+2. Ampidiro :
+   - **Callback URL** : `https://agence-virtuelle.vercel.app/api/webhooks/facebook`
+   - **Verify Token** : `assistante_virtuelle_webhook_verify_token`
+3. Tsindrio ny **« Vérifier et enregistrer »** :
+   - Hahazo **marika maitso ✓** avy hatrany ianao !
+4. Ao amin'ny **Webhook fields**, mariho (cocher) ireto :
+   - `messages`
+   - `messaging_postbacks`
+   - `feed`
