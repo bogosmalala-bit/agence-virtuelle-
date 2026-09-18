@@ -38,8 +38,8 @@ export interface DatabaseSchema {
 
 export const db: DatabaseSchema = {
   systemConfig: {
-    meta_app_id: process.env.META_APP_ID || '102938475628192',
-    meta_app_secret: process.env.META_APP_SECRET || '9f8e7d6c5b4a3120ef',
+    meta_app_id: process.env.META_APP_ID || '',
+    meta_app_secret: process.env.META_APP_SECRET || '',
     meta_verify_token: process.env.META_VERIFY_TOKEN || 'assistante_virtuelle_webhook_verify_token',
     firebase_fcm_server_key: process.env.FIREBASE_FCM_SERVER_KEY || 'AAAA_fcm_server_key_live_2026',
     operator_phone_number: process.env.OPERATOR_PHONE_NUMBER || '+261340000000',

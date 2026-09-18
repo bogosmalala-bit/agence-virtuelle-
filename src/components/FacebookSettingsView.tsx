@@ -37,6 +37,11 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
   const [newPageName, setNewPageName] = useState('');
   const [newPageCat, setNewPageCat] = useState('Commerce & Vente');
   const [metaAppId, setMetaAppId] = useState<string>('');
+  const [appIdInput, setAppIdInput] = useState<string>('');
+  const [appSecretInput, setAppSecretInput] = useState<string>('');
+  const [showSecret, setShowSecret] = useState<boolean>(false);
+  const [isSavingAppConfig, setIsSavingAppConfig] = useState<boolean>(false);
+  const [appConfigStatus, setAppConfigStatus] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://votre-domaine.com';
   const host = typeof window !== 'undefined' ? window.location.hostname : 'votre-domaine.com';
@@ -65,14 +70,76 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
 
   useEffect(() => {
     fetch('/api/system/config')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data?.meta_app_id) {
-          setMetaAppId(data.meta_app_id);
+        if (data) {
+          if (data.meta_app_id) {
+            setMetaAppId(data.meta_app_id);
+            setAppIdInput(data.meta_app_id);
+          }
+          if (data.meta_app_secret) {
+            setAppSecretInput(data.meta_app_secret);
+          }
         }
       })
       .catch(() => {});
   }, []);
+
+  const handleSaveAppConfig = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanId = appIdInput.trim();
+    if (!cleanId) {
+      setAppConfigStatus({
+        type: 'error',
+        text: 'Azafady ampidiro ny laharana Identifiant de l’application (App ID).',
+      });
+      return;
+    }
+
+    // Facebook App IDs are strictly numeric and typically 15-16 digits
+    const isDigitsOnly = /^\d+$/.test(cleanId);
+    if (!isDigitsOnly || cleanId.length < 8) {
+      setAppConfigStatus({
+        type: 'error',
+        text: 'Ny App ID Facebook dia tsy maintsy tarehimarika (chiffres) 15 na 16 isa avy ao amin\'ny developers.facebook.com.',
+      });
+      return;
+    }
+
+    setIsSavingAppConfig(true);
+    setAppConfigStatus(null);
+    try {
+      const res = await fetch('/api/system/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meta_app_id: cleanId,
+          meta_app_secret: appSecretInput.trim() || undefined,
+        }),
+      });
+
+      if (res.ok) {
+        setMetaAppId(cleanId);
+        setAppConfigStatus({
+          type: 'success',
+          text: `Voatahiry soa aman-tsara ny App ID (${cleanId}) ! Vonona hanaovana Facebook Login izao.`,
+        });
+        setTimeout(() => setAppConfigStatus(null), 5000);
+      } else {
+        setAppConfigStatus({
+          type: 'error',
+          text: 'Nisy olana teo am-pitehirizana. Andramo indray azafady.',
+        });
+      }
+    } catch (err: any) {
+      setAppConfigStatus({
+        type: 'error',
+        text: `Fahadisoana: ${err.message}`,
+      });
+    } finally {
+      setIsSavingAppConfig(false);
+    }
+  };
 
   const copyToClipboard = (text: string, fieldKey: string) => {
     navigator.clipboard.writeText(text);
@@ -84,6 +151,9 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
     const fullSummary = `=== LIENS & CONFIGURATION FACEBOOK LOGIN / META DEVELOPERS ===
 Site URL (URL du site web) : ${siteUrl}
 App Domain (Domaine de l'application) : ${host}
+
+0. IDENTIFIANT DE L'APPLICATION (APP ID) :
+${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
 
 1. FACEBOOK LOGIN > PARAMÈTRES (SETTINGS) :
 - URI de redirection OAuth valides :
@@ -118,11 +188,28 @@ App Domain (Domaine de l'application) : ${host}
     setTimeout(() => setCopiedField(null), 2500);
   };
 
-  const directOAuthUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${
-    metaAppId || 'VOTRE_APP_ID'
-  }&redirect_uri=${encodeURIComponent(oauthRedirectUri)}&scope=${encodeURIComponent(
-    requiredScopes.join(',')
-  )}&response_type=code&state=meta_oauth_connect`;
+  const isAppIdValid = metaAppId && /^\d+$/.test(metaAppId) && metaAppId.length >= 8;
+
+  const directOAuthUrl = isAppIdValid
+    ? `https://www.facebook.com/v20.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(
+        oauthRedirectUri
+      )}&scope=${encodeURIComponent(requiredScopes.join(','))}&response_type=code&state=meta_oauth_connect`
+    : '#';
+
+  const handleStartOAuth = (e: React.MouseEvent) => {
+    if (!isAppIdValid) {
+      e.preventDefault();
+      setAppConfigStatus({
+        type: 'error',
+        text: 'Azafady ampidiro ary tahirizo eo ambony aloha ny tena App ID Meta-nao (tarehimarika 15-16 isa) vao manomboka ny Facebook Login.',
+      });
+      const inputEl = document.getElementById('meta-app-id-input');
+      if (inputEl) {
+        inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        inputEl.focus();
+      }
+    }
+  };
 
   const handleConnectPage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,6 +247,155 @@ App Domain (Domaine de l'application) : ${host}
           <Copy className="h-4 w-4" />
           <span>{copiedField === 'all_links' ? 'Voadika avokoa !' : 'Adikao daholo ireo Rohy (Copier Tout)'}</span>
         </button>
+      </div>
+
+      {/* Section 0: Meta App ID & Secret Configuration */}
+      <div className="rounded-2xl border border-indigo-500/40 bg-gradient-to-br from-slate-900 via-indigo-950/30 to-slate-900 p-5 space-y-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-3 gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400 font-bold text-xs">
+                0
+              </span>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-indigo-400" />
+                Ny App ID Meta Facebook-nao (Identifiant d'application)
+              </h3>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Ity no laharana 15 na 16 isa ao amin'ny <strong>developers.facebook.com</strong> (Tableau de bord na Paramètres &gt; Général). Tsy maintsy marina io vao afaka manao Facebook Login.
+            </p>
+          </div>
+
+          <div>
+            {isAppIdValid ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-[11px] font-bold text-emerald-400">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                <span>App ID Vonona ({metaAppId})</span>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-3 py-1 text-[11px] font-bold text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Mila ampidirina ny App ID</span>
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Feedback Message */}
+        {appConfigStatus && (
+          <div
+            className={`rounded-xl p-3 text-xs flex items-start gap-2 ${
+              appConfigStatus.type === 'success'
+                ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {appConfigStatus.type === 'success' ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+            )}
+            <span>{appConfigStatus.text}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleSaveAppConfig} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">
+                Identifiant de l’application (App ID) <span className="text-rose-400">*</span>
+              </label>
+              <div className="relative">
+                <input
+                  id="meta-app-id-input"
+                  type="text"
+                  placeholder="oh: 14312953392459518..."
+                  value={appIdInput}
+                  onChange={(e) => setAppIdInput(e.target.value)}
+                  className={`w-full rounded-xl border bg-slate-950 px-3.5 py-2.5 text-xs font-mono text-white placeholder:text-slate-600 focus:outline-none ${
+                    isAppIdValid
+                      ? 'border-emerald-500/50 focus:border-emerald-500'
+                      : 'border-slate-800 focus:border-indigo-500'
+                  }`}
+                  required
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Laharana tokana 15-16 isa hita eo ambony havia ao amin'ny developers.facebook.com
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-slate-300">
+                  Clé secrète de l’application (App Secret)
+                </label>
+                <span className="text-[10px] text-slate-500">(Fiarovana fanampiny)</span>
+              </div>
+              <div className="relative flex items-center">
+                <input
+                  type={showSecret ? 'text' : 'password'}
+                  placeholder="Clé secrète ao amin'ny Paramètres > Général"
+                  value={appSecretInput}
+                  onChange={(e) => setAppSecretInput(e.target.value)}
+                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3.5 py-2.5 pr-10 text-xs font-mono text-white placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecret(!showSecret)}
+                  className="absolute right-3 text-slate-400 hover:text-white"
+                >
+                  <Key className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Hita ao amin'ny Paramètres &gt; Général ao amin'ny Facebook Developers
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-1 gap-2">
+            <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+              <Info className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+              <span>
+                Raha vao manindry "Tahirizo" ianao dia havaozina ho azy ny rohy Facebook Login rehetra.
+              </span>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSavingAppConfig}
+              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition-all active:scale-95 disabled:opacity-50 whitespace-nowrap self-start sm:self-auto"
+            >
+              {isSavingAppConfig ? (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>Eo am-pitehirizana...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>Tahirizo ny App ID</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+
+        {/* Mini Guide Box */}
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3.5 text-[11px] text-slate-400 space-y-1.5">
+          <p className="font-bold text-slate-300 flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
+            Aiza marina no ahitana io App ID io ao amin'ny Facebook Developers ?
+          </p>
+          <ol className="list-decimal list-inside space-y-0.5 text-slate-400">
+            <li>Sokafy ny tranokala <strong>https://developers.facebook.com/apps</strong></li>
+            <li>Kitiho ny Application-nao (ilay namboarinao ho an'ny chatbot)</li>
+            <li>Jereo eo amin'ny lohateny ambony havia eo akaikin'ny anaran'ny App na sokafy ny <strong>Paramètres &gt; Général</strong></li>
+            <li>Adikao ilay laharana eo amin'ny <strong>Identifiant de l'application (App ID)</strong> dia apetaho eto ambony ary tsindrio <strong>Tahirizo</strong>.</li>
+          </ol>
+        </div>
       </div>
 
       {/* Primary Highlights Card: Facebook Login Required Links */}
@@ -542,26 +778,54 @@ App Domain (Domaine de l'application) : ${host}
       <div className="rounded-2xl border border-blue-500/40 bg-gradient-to-r from-blue-950/40 via-slate-900 to-indigo-950/40 p-5 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Facebook className="h-4 w-4 text-blue-400" />
-              5. Fitsapana mivantana ny Facebook Login (Lien Direct OAuth)
-            </h3>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Tsindrio ity bokotra ity na adikao ny rohy mivantana hahafahana manokatra ny varavarankely ofisialin'ny Facebook Login.
+            <div className="flex items-center gap-2">
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-blue-500/20 text-blue-400 font-bold text-xs">
+                5
+              </span>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Facebook className="h-4 w-4 text-blue-400" />
+                Fitsapana mivantana ny Facebook Login (Lien Direct OAuth)
+              </h3>
+            </div>
+            <p className="text-xs text-slate-300 mt-1">
+              Tsindrio ity bokotra ity mba hanombohana ny fifandraisana Facebook Login amin'ny alalan'ny Meta Graph API.
             </p>
           </div>
 
           <a
-            href={directOAuthUrl}
-            target="_blank"
+            href={isAppIdValid ? directOAuthUrl : '#meta-app-id-input'}
+            onClick={handleStartOAuth}
+            target={isAppIdValid ? '_blank' : '_self'}
             rel="noreferrer"
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/30 hover:bg-blue-500 self-start sm:self-auto whitespace-nowrap"
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold text-white shadow-lg transition-all self-start sm:self-auto whitespace-nowrap active:scale-95 ${
+              isAppIdValid
+                ? 'bg-blue-600 shadow-blue-600/30 hover:bg-blue-500 cursor-pointer'
+                : 'bg-amber-600/80 hover:bg-amber-600 cursor-pointer'
+            }`}
           >
             <Facebook className="h-4 w-4" />
-            <span>Manomboka Facebook Login</span>
+            <span>{isAppIdValid ? 'Manomboka Facebook Login' : 'Ampidiro aloha ny App ID'}</span>
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
+
+        {/* Status notice */}
+        {!isAppIdValid ? (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
+            <div>
+              <p className="font-bold">Mila ampidirina aloha ny App ID Meta-nao :</p>
+              <p className="text-[11px] text-amber-200/80 mt-0.5">
+                Raha tsy misy App ID marina (tarehimarika 15 na 16 isa) dia mampiseho <em>"Identifiant d'application invalide"</em> ny Facebook. Apetaho eo amin'ny <strong>fizarana 0 eo ambony</strong> ny App ID avy ao amin'ny developers.facebook.com dia tsindrio "Tahirizo".
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-xs text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            <span>App ID ampiasaina : <strong className="font-mono text-white">{metaAppId}</strong> (v20.0 Meta Graph API)</span>
+          </div>
+        )}
 
         <div className="pt-2">
           <label className="block text-[11px] font-semibold text-slate-400 mb-1">
@@ -571,15 +835,17 @@ App Domain (Domaine de l'application) : ${host}
             <input
               type="text"
               readOnly
-              value={directOAuthUrl}
+              value={isAppIdValid ? directOAuthUrl : '(Mila ampidirina ny App ID eo amin\'ny fizarana 0)'}
               className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-slate-400 font-mono text-[11px] focus:outline-none select-all"
             />
-            <button
-              onClick={() => copyToClipboard(directOAuthUrl, 'direct_oauth')}
-              className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </button>
+            {isAppIdValid && (
+              <button
+                onClick={() => copyToClipboard(directOAuthUrl, 'direct_oauth')}
+                className="rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 hover:text-white"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>

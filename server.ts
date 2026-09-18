@@ -175,7 +175,13 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
     const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
     const host = req.headers['x-forwarded-host'] || req.get('host');
     const redirectUri = `${protocol}://${host}/api/auth/facebook/callback`;
-    const appId = db.systemConfig.meta_app_id || process.env.META_APP_ID || 'VOTRE_META_APP_ID';
+    const appId = db.systemConfig.meta_app_id || process.env.META_APP_ID || '';
+    if (!appId) {
+      return res.status(400).json({
+        error: 'META_APP_ID_MISSING',
+        message: 'Azafady ampidiro aloha ny App ID Meta-nao ao amin\'ny Paramètres Facebook.',
+      });
+    }
     const scopes = [
       'pages_messaging',
       'pages_manage_metadata',
