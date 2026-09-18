@@ -1,0 +1,6 @@
+{
+  "name": "Assistante Virtuelle IA - Facebook Page",
+  "description": "Plateforme professionnelle d'automatisation IA pour Page Facebook : gestion intelligente des messages privés, commentaires, vente, prise de commandes en Ariary, modération, auto-post et rotation multi-clés API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
