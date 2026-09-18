@@ -37,6 +37,9 @@ export const FacebookLoginModal: React.FC<FacebookLoginModalProps> = ({
   const [userToken, setUserToken] = useState('');
   const [retrievedPages, setRetrievedPages] = useState<FacebookPage[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [connectedUser, setConnectedUser] = useState<{ name: string; avatar?: string; id?: string } | null>(null);
+  const [manualPageInput, setManualPageInput] = useState({ name: '', pageId: '' });
+  const [addingManualPage, setAddingManualPage] = useState(false);
 
   useEffect(() => {
     const saved = localPersistence.getAppId();
@@ -62,17 +65,11 @@ export const FacebookLoginModal: React.FC<FacebookLoginModalProps> = ({
     return () => window.removeEventListener('message', handleMessage);
   }, [appId]);
 
-  if (!isOpen) return null;
-
   const effectiveOrigin = typeof window !== 'undefined' ? window.location.origin : 'https://agence-virtuelle.vercel.app';
   const popupCallbackUrl = `${effectiveOrigin}/oauth-popup-callback.html`;
 
   const cleanAppId = appId.trim();
   const isAppIdValid = cleanAppId && /^\d+$/.test(cleanAppId) && cleanAppId.length >= 8;
-
-  const [connectedUser, setConnectedUser] = useState<{ name: string; avatar?: string; id?: string } | null>(null);
-  const [manualPageInput, setManualPageInput] = useState({ name: '', pageId: '' });
-  const [addingManualPage, setAddingManualPage] = useState(false);
 
   // Process token, retrieve profile + pages, save to Firestore & server
   const handleSuccessfulToken = async (token: string) => {
@@ -254,6 +251,8 @@ export const FacebookLoginModal: React.FC<FacebookLoginModalProps> = ({
   };
 
   const explorerUrl = `https://developers.facebook.com/tools/explorer/?app_id=${cleanAppId || ''}`;
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
