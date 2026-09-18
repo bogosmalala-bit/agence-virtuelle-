@@ -55,6 +55,30 @@ export function App() {
   const [apiKeys, setApiKeys] = useState<AIApiKeyConfig[]>([]);
   const [notifications, setNotifications] = useState<NotificationLog[]>([]);
 
+  // Sidebar Collapse and Mobile Drawer State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sidebar_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
+
+  const handleToggleSidebar = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setIsMobileSidebarOpen((prev) => !prev);
+    } else {
+      setIsSidebarCollapsed((prev) => {
+        const next = !prev;
+        try {
+          localStorage.setItem('sidebar_collapsed', String(next));
+        } catch {}
+        return next;
+      });
+    }
+  };
+
   // Initial Fetch & Real-Time Sync Loop
   const loadInitialData = async () => {
     try {
@@ -463,10 +487,14 @@ export function App() {
         page={activePage}
         unreadCount={conversations.filter((c) => c.status === 'HANDOFF_HUMAN').length}
         pendingOrdersCount={orders.filter((o) => o.status === 'NOUVELLE').length}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
+        isMobileOpen={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
       {/* Main Content Area */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
         {/* Header */}
         <Header
           page={activePage}
@@ -477,6 +505,8 @@ export function App() {
           onToggleAi={handleToggleAi}
           onSyncFacebook={handleSyncFacebook}
           onNavigate={handleNavigation}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebar={handleToggleSidebar}
         />
 
         {/* Scrollable View Container */}

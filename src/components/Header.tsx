@@ -10,6 +10,9 @@ import {
   Radio,
   ExternalLink,
   ChevronDown,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { FacebookPage, AssistantSettings, NotificationLog, AIApiKeyConfig } from '../types.js';
 
@@ -22,6 +25,8 @@ interface HeaderProps {
   onToggleAi: () => void;
   onSyncFacebook?: () => void;
   onNavigate: (view: string) => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,15 +38,32 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAi,
   onSyncFacebook,
   onNavigate,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const activeKey = apiKeys.find((k) => k.status === 'ACTIVE');
   const hasQuotaLimit = apiKeys.some((k) => k.status === 'QUOTA_LIMIT');
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-800/80 bg-slate-900/95 px-4 py-3 backdrop-blur-md md:px-6">
-      {/* Left: Connected Page Info & AI Status */}
-      <div className="flex items-center gap-3 md:gap-4">
+    <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-800/80 bg-slate-900/95 px-3 py-3 backdrop-blur-md md:px-6">
+      {/* Left: Sidebar Toggle, Connected Page Info & AI Status */}
+      <div className="flex items-center gap-2 md:gap-4">
+        {/* Toggle Sidebar Button */}
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-950/80 text-slate-300 hover:bg-slate-800 hover:text-white transition-all shadow-sm"
+            title={isSidebarCollapsed ? 'Agrandir la barre latérale (Halalahana)' : 'Réduire la barre latérale (Aforitra)'}
+          >
+            {isSidebarCollapsed ? (
+              <PanelLeftOpen className="h-4 w-4 text-blue-400" />
+            ) : (
+              <Menu className="h-4 w-4" />
+            )}
+          </button>
+        )}
+
         {page && (
           <div className="flex items-center gap-2.5 rounded-lg border border-slate-800 bg-slate-950/60 p-1.5 pr-3">
             <img
