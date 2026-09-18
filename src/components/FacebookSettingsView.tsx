@@ -251,6 +251,19 @@ export const FacebookSettingsView: React.FC<FacebookSettingsViewProps> = ({
     }
   };
 
+  const handleEnableSandbox = async () => {
+    try {
+      const res = await fetch('/api/facebook/pages/enable-sandbox', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setSubscribeStatus({ type: 'success', text: data.message });
+        handleRunDiagnostic();
+      }
+    } catch (e: any) {
+      console.error(e);
+    }
+  };
+
   const handleForceSubscribeWebhook = async () => {
     setIsSubscribingWebhook(true);
     setSubscribeStatus(null);
@@ -611,7 +624,7 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleRunDiagnostic}
               disabled={isRunningDiag}
@@ -619,6 +632,14 @@ ${metaAppId || appIdInput || '(Tsy mbola voarakitra)'}
             >
               <RefreshCw className={`h-4 w-4 ${isRunningDiag ? 'animate-spin' : ''}`} />
               <span>{isRunningDiag ? 'Eo am-panamarinana...' : 'Manao Diagnostic Ankehitriny'}</span>
+            </button>
+            <button
+              onClick={handleEnableSandbox}
+              className="flex items-center gap-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 px-3.5 py-2.5 text-xs font-bold text-white shadow-lg shadow-amber-600/30 transition-all active:scale-95 cursor-pointer"
+              title="Active avy hatrany ny Token Test & Sandbox mba tsy hisian'ny olana"
+            >
+              <Zap className="h-4 w-4" />
+              <span>⚡ Mode Test & Token</span>
             </button>
             <button
               onClick={handleForceSubscribeWebhook}
