@@ -15,7 +15,12 @@ export function setPageAccessToken(pageId: string, token: string) {
 }
 
 export function getPageAccessToken(pageId: string): string | undefined {
-  return pageTokensStore[pageId];
+  if (pageTokensStore[pageId]) return pageTokensStore[pageId];
+  const cleanId = (pageId || '').replace(/^page_/, '');
+  const found = db.facebookPages.find(
+    (p) => p.page_id === pageId || p.page_id === cleanId || p.id === pageId || p.id === `page_${cleanId}`
+  );
+  return found?.page_access_token;
 }
 
 // Meta Webhook Verification Handler (GET /api/webhooks/facebook)

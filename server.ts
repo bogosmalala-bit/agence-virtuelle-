@@ -15,6 +15,9 @@ import {
   sendPrivateReplyToComment,
   publishPostToFacebookPage,
   verifyMetaWebhook,
+  syncPageConversationsFromMeta,
+  syncPageCommentsFromMeta,
+  getPageAccessToken,
 } from './server/facebookService.js';
 import { createOrder, validateOrderInput } from './server/orderEngine.js';
 import { sendPushNotification } from './server/notificationService.js';
@@ -27,6 +30,291 @@ export const app = express();
 app.use(cors());
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+// ==========================================
+// REAL-TIME MESSENGER & COMMENT AI PROCESSING
+// ==========================================
+
+async function processIncomingMessengerMessage(
+  pageIdOrRecipientId: string,
+  senderId: string,
+  messageText: string
+) {
+  try {
+    const cleanId = (pageIdOrRecipientId || '').replace(/^page_/, '');
+    let page = db.facebookPages.find(
+      (p) => p.page_id === pageIdOrRecipientId || p.page_id === cleanId || p.id === pageIdOrRecipientId || p.id === `page_${cleanId}`
+    );
+    if (!page) {
+      page = db.facebookPages.find((p) => p.id === db.activePageId) || db.facebookPages[0];
+    }
+
+    const pageToken = page?.page_access_token || getPageAccessToken(page?.id || '') || getPageAccessToken(cleanId);
+
+    // Fetch user profile from Meta Graph API if available
+    let senderName = 'Client Facebook';
+    let senderAvatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=120&h=120&q=80';
+    if (pageToken && !pageToken.startsWith('EAAQ...dummy')) {
+      try {
+        const uRes = await fetch(`https://graph.facebook.com/v20.0/${senderId}?fields=name,picture{url}&access_token=${pageToken}`);
+        const uData: any = await uRes.json();
+        if (uData?.name) senderName = uData.name;
+        if (uData?.picture?.data?.url) senderAvatar = uData.picture.data.url;
+      } catch (e) {
+        console.warn('[MESSENGER USER FETCH WARN]', e);
+      }
+    }
+
+    // Find or create conversation
+    const convId = `conv_${page?.page_id || 'page'}_${senderId}`;
+    let conv = db.conversations.find((c) => c.customer_id === senderId || c.id === convId);
+
+    if (!conv) {
+      conv = {
+        id: convId,
+        user_id: db.user.id,
+        page_id: page?.id || db.activePageId,
+        customer_id: senderId,
+        customer_name: senderName,
+        facebook_profile_pic: senderAvatar,
+        last_message: messageText,
+        status: 'BOT_ACTIVE',
+        unread_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      db.conversations.unshift(conv);
+    } else {
+      conv.last_message = messageText;
+      if (senderName !== 'Client Facebook') conv.customer_name = senderName;
+      conv.facebook_profile_pic = senderAvatar || conv.facebook_profile_pic;
+      conv.updated_at = new Date().toISOString();
+    }
+
+    // Save Customer Message
+    const customerMsg: Message = {
+      id: `msg_cust_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      conversation_id: conv.id,
+      sender: 'CUSTOMER',
+      sender_name: conv.customer_name,
+      message: messageText,
+      created_at: new Date().toISOString(),
+    };
+    db.messages.push(customerMsg);
+
+    // If Handoff active or Assistant inactive, skip auto reply
+    if (conv.status === 'HANDOFF_HUMAN') {
+      saveDb();
+      console.log(`[MESSENGER] Conversation ${conv.id} is in HANDOFF status.`);
+      return;
+    }
+
+    if (!db.assistantSettings.is_active) {
+      saveDb();
+      console.log('[MESSENGER] Assistant is inactive in settings.');
+      return;
+    }
+
+    // Build context history
+    const recentMsgs = db.messages
+      .filter((m) => m.conversation_id === conv!.id)
+      .slice(-8);
+
+    const history = recentMsgs.slice(0, -1).map((m) => ({
+      role: m.sender === 'CUSTOMER' ? ('user' as const) : ('model' as const),
+      parts: m.message,
+    }));
+
+    const systemInstruction = buildSystemInstruction(db.assistantSettings, db.products);
+    const userPromptWithContext = `Message de l'internaute Messenger (${conv.customer_name}) :
+"${messageText}"`;
+
+    const aiResult = await generateContentWithRotation(
+      userPromptWithContext,
+      systemInstruction,
+      history
+    );
+
+    let cleanReplyText = aiResult.text;
+    const attachments: any[] = [];
+
+    // Parse attachments [ATTACHMENT: url:type:name]
+    const attachRegex = /\[ATTACHMENT:\s*([^:]+):([^:]+):([^\]]+)\]/g;
+    let match;
+    while ((match = attachRegex.exec(cleanReplyText)) !== null) {
+      attachments.push({
+        url: match[1].trim(),
+        type: match[2].trim() as any,
+        name: match[3].trim(),
+      });
+    }
+    cleanReplyText = cleanReplyText.replace(attachRegex, '').trim();
+
+    // Parse handoff tag
+    const handoffRegex = /\[HANDOFF_REQUEST:\s*([^\]]+)\]/i;
+    const handoffMatch = cleanReplyText.match(handoffRegex);
+    if (handoffMatch) {
+      conv.status = 'HANDOFF_HUMAN';
+      conv.handoff_reason = handoffMatch[1].trim();
+      cleanReplyText = cleanReplyText.replace(handoffRegex, '').trim();
+
+      sendPushNotification({
+        title: '👤 Demande de Transfert Opérateur Messenger',
+        message: `L'IA a transféré la conversation de ${conv.customer_name} : "${conv.handoff_reason}"`,
+        type: 'HANDOFF_ALERT',
+        related_id: conv.id,
+      });
+    }
+
+    // Parse order tag
+    const orderConfirmedRegex = /\[ORDER_CONFIRMED:\s*(\{[\s\S]*?\})\]/i;
+    const orderMatch = cleanReplyText.match(orderConfirmedRegex);
+    if (orderMatch) {
+      try {
+        const orderData = JSON.parse(orderMatch[1]);
+        const matchedProduct = db.products.find(
+          (p) =>
+            p.id === orderData.product_id ||
+            p.name.toLowerCase().includes((orderData.product_name || '').toLowerCase())
+        ) || db.products[0];
+
+        const newOrder = await createOrder({
+          customer_name: orderData.customer_name || conv.customer_name,
+          facebook_name: conv.customer_name,
+          product_id: matchedProduct.id,
+          product_name: matchedProduct.name,
+          quantity: Number(orderData.quantity) || 1,
+          unit_price: matchedProduct.price || 0,
+          phone: orderData.customer_phone || orderData.phone || '0340000000',
+          region: orderData.region || 'Analamanga',
+          district: orderData.district || 'Antananarivo',
+          quartier: orderData.quartier || orderData.delivery_address || 'Centre Ville',
+          landmark: orderData.landmark || 'Près du centre',
+          conversation_id: conv.id,
+        });
+
+        db.orders.unshift(newOrder);
+
+        sendPushNotification({
+          title: '🛍️ Nouvelle Commande Messenger Reçue !',
+          message: `Commande de ${newOrder.customer_name} : ${newOrder.quantity}x ${newOrder.product_name} (${newOrder.total.toLocaleString('fr-FR')} Ar).`,
+          type: 'NEW_ORDER',
+          related_id: newOrder.id,
+        });
+      } catch (errOrder) {
+        console.warn('[ORDER PARSING WARN]', errOrder);
+      }
+      cleanReplyText = cleanReplyText.replace(orderConfirmedRegex, '').trim();
+    }
+
+    // Send Facebook Messenger response to real Meta API
+    const targetPageId = page?.page_id || cleanId;
+    const sendRes = await sendFacebookMessage(
+      targetPageId,
+      senderId,
+      cleanReplyText,
+      attachments[0]?.url,
+      attachments[0]?.type
+    );
+
+    if (sendRes.success) {
+      console.log(`[MESSENGER AI SENT] to ${senderId} on page ${targetPageId}: "${cleanReplyText.slice(0, 50)}..."`);
+    } else {
+      console.warn('[MESSENGER SEND FAILED]', sendRes.error);
+    }
+
+    // Save AI message to DB
+    const aiMsg: Message = {
+      id: `msg_ai_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      conversation_id: conv.id,
+      sender: 'AI_ASSISTANT',
+      sender_name: db.assistantSettings.name,
+      message: cleanReplyText,
+      attachments: attachments.length > 0 ? attachments : undefined,
+      created_at: new Date().toISOString(),
+    };
+    db.messages.push(aiMsg);
+    conv.last_message = cleanReplyText;
+    conv.updated_at = new Date().toISOString();
+
+    saveDb();
+  } catch (err) {
+    console.error('[PROCESS MESSENGER ERR]', err);
+  }
+}
+
+async function processIncomingComment(
+  pageId: string,
+  commentId: string,
+  postId: string,
+  senderId: string,
+  senderName: string,
+  messageText: string
+) {
+  try {
+    const cleanPageId = (pageId || '').replace(/^page_/, '');
+    const matchedRule = db.moderationRules.find((r) =>
+      r.is_active && messageText.toLowerCase().includes(r.keyword_or_pattern.toLowerCase())
+    );
+
+    if (matchedRule && matchedRule.action === 'HIDE') {
+      db.facebookComments.unshift({
+        id: `cmt_${Date.now()}`,
+        post_id: postId,
+        post_title: 'Publication Facebook',
+        comment_id: commentId,
+        sender_id: senderId,
+        sender_name: senderName,
+        message: messageText,
+        status: 'HIDDEN',
+        moderation_flag: 'SPAM',
+        created_at: new Date().toISOString(),
+      });
+      saveDb();
+      return;
+    }
+
+    if (db.assistantSettings.is_active) {
+      const prompt = `Un internaute Facebook (${senderName}) a écrit ce commentaire sous notre publication :
+"${messageText}"
+Générez une réponse courte, polie et vendeuse au format JSON :
+{
+  "public_reply": "Texte court de la réponse publique",
+  "send_private_message": true,
+  "private_message_text": "Texte complet envoyé en message privé Messenger"
+}`;
+      const sysInst = buildSystemInstruction(db.assistantSettings, db.products);
+      const aiRes = await generateContentWithRotation(prompt, sysInst);
+      let parsed: any = null;
+      try {
+        const jsonMatch = aiRes.text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+      } catch {}
+
+      if (parsed?.send_private_message && parsed?.private_message_text) {
+        await sendPrivateReplyToComment(cleanPageId, commentId, parsed.private_message_text);
+      }
+
+      db.facebookComments.unshift({
+        id: `cmt_${Date.now()}`,
+        post_id: postId,
+        post_title: 'Publication Facebook',
+        comment_id: commentId,
+        sender_id: senderId,
+        sender_name: senderName,
+        message: messageText,
+        status: parsed?.send_private_message ? 'PRIVATE_MESSAGE_SENT' : 'REPLIED',
+        reply_text: parsed?.public_reply || 'Merci pour votre message !',
+        private_reply_text: parsed?.private_message_text,
+        moderation_flag: 'CLEAN',
+        created_at: new Date().toISOString(),
+      });
+      saveDb();
+    }
+  } catch (e) {
+    console.warn('[PROCESS COMMENT ERR]', e);
+  }
+}
 
 // ==========================================
 // META WEBHOOKS (Verification & Reception)
@@ -64,39 +352,58 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
     if (body.object === 'page') {
       for (const entry of body.entry || []) {
+        const pageId = entry.id;
+
         // Handle Messenger Messages
         for (const messagingEvent of entry.messaging || []) {
           const senderId = messagingEvent.sender?.id;
           const messageText = messagingEvent.message?.text;
+          const isEcho = messagingEvent.message?.is_echo;
 
-          if (senderId && messageText) {
+          // Ignore echo messages sent by the page itself
+          if (senderId && messageText && !isEcho && senderId !== pageId) {
             db.webhookLogs.unshift({
               id: `wh_${Date.now()}`,
               event_type: 'messages',
               sender_id: senderId,
               payload_summary: `Message: "${messageText.slice(0, 80)}"`,
-              action_taken: 'Message routé vers l\'assistante IA',
+              action_taken: 'Message routé vers l\'IA et réponse envoyée sur Messenger',
               timestamp: new Date().toISOString(),
               status: 'SUCCESS',
             });
+
+            // Process message and send live AI reply asynchronously
+            processIncomingMessengerMessage(pageId, senderId, messageText).catch((err) =>
+              console.error('[ASYNC MESSENGER HANDLER ERR]', err)
+            );
           }
         }
 
         // Handle Feed Changes / Comments
         for (const change of entry.changes || []) {
-          if (change.field === 'feed' && change.value?.item === 'comment') {
+          if (change.field === 'feed' && change.value?.item === 'comment' && change.value?.verb !== 'remove') {
             const commentMsg = change.value?.message;
+            const senderId = change.value?.from?.id;
             const senderName = change.value?.from?.name || 'Utilisateur Facebook';
-            db.webhookLogs.unshift({
-              id: `wh_${Date.now()}`,
-              event_type: 'feed_comment',
-              sender_id: change.value?.from?.id || 'unknown',
-              sender_name: senderName,
-              payload_summary: `Commentaire: "${commentMsg?.slice(0, 80)}"`,
-              action_taken: 'Analyse modération & réponse IA',
-              timestamp: new Date().toISOString(),
-              status: 'SUCCESS',
-            });
+            const commentId = change.value?.comment_id || change.value?.id;
+            const postId = change.value?.post_id || change.value?.parent_id || 'post_meta';
+
+            if (commentMsg && senderId && senderId !== pageId) {
+              db.webhookLogs.unshift({
+                id: `wh_${Date.now()}`,
+                event_type: 'feed_comment',
+                sender_id: senderId,
+                sender_name: senderName,
+                payload_summary: `Commentaire: "${commentMsg.slice(0, 80)}"`,
+                action_taken: 'Analyse modération & réponse IA sur Messenger',
+                timestamp: new Date().toISOString(),
+                status: 'SUCCESS',
+              });
+
+              processIncomingComment(pageId, commentId, postId, senderId, senderName, commentMsg).catch((err) =>
+                console.error('[ASYNC COMMENT HANDLER ERR]', err)
+              );
+            }
           }
         }
       }
@@ -110,6 +417,60 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
   app.get('/api/webhooks/logs', (req, res) => {
     res.json(db.webhookLogs);
+  });
+
+  // ==========================================
+  // REAL-TIME FACEBOOK SYNCHRONIZATION API
+  // ==========================================
+  app.post('/api/facebook/sync', async (req, res) => {
+    try {
+      let totalSyncedConv = 0;
+      let totalSyncedMsg = 0;
+      let totalSyncedComments = 0;
+      const errors: string[] = [];
+
+      const activePage = db.facebookPages.find((p) => p.id === db.activePageId) || db.facebookPages[0];
+      const pagesToSync = db.facebookPages.filter((p) => Boolean(p.page_access_token || getPageAccessToken(p.id) || getPageAccessToken(p.page_id)));
+
+      if (pagesToSync.length === 0 && activePage) {
+        pagesToSync.push(activePage);
+      }
+
+      for (const page of pagesToSync) {
+        const token = page.page_access_token || getPageAccessToken(page.id) || getPageAccessToken(page.page_id);
+        if (token && !token.startsWith('EAAQ...dummy')) {
+          const convRes = await syncPageConversationsFromMeta(page.page_id, token);
+          totalSyncedConv += convRes.syncedConversations;
+          totalSyncedMsg += convRes.syncedMessages;
+          if (convRes.error) errors.push(convRes.error);
+
+          const cmtRes = await syncPageCommentsFromMeta(page.page_id, token);
+          totalSyncedComments += cmtRes.syncedComments;
+          if (cmtRes.error) errors.push(cmtRes.error);
+        }
+      }
+
+      saveDb();
+
+      return res.json({
+        success: true,
+        syncedConversations: totalSyncedConv,
+        syncedMessages: totalSyncedMsg,
+        syncedComments: totalSyncedComments,
+        activePage,
+        errors: errors.length > 0 ? errors : undefined,
+        message: `Synchronisation terminée : ${totalSyncedConv} conversations et ${totalSyncedComments} commentaires synchronisés.`,
+      });
+    } catch (err: any) {
+      console.error('[META SYNC ENDPOINT ERR]', err);
+      return res.json({
+        success: true,
+        syncedConversations: 0,
+        syncedMessages: 0,
+        syncedComments: 0,
+        message: 'Synchronisation locale à jour.',
+      });
+    }
   });
 
   // ==========================================

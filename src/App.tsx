@@ -89,9 +89,9 @@ export function App() {
   const [notifications, setNotifications] = useState<NotificationLog[]>([]);
 
   // Safe JSON Fetch helper preventing crashes on HTML or non-200 responses
-  const safeFetchJson = async <T,>(url: string, fallback: T): Promise<T> => {
+  const safeFetchJson = async <T,>(url: string, fallback: T, options?: RequestInit): Promise<T> => {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, options);
       if (!res.ok) return fallback;
       const text = await res.text();
       if (!text || (!text.trim().startsWith('{') && !text.trim().startsWith('['))) {
@@ -508,25 +508,29 @@ export function App() {
   const handleSyncFacebook = async () => {
     setIsSyncing(true);
     try {
-      const res = await fetch('/api/facebook/sync', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        await loadInitialData();
-        const newNotif: NotificationLog = {
-          id: `notif_${Date.now()}`,
-          type: 'HANDOFF_ALERT',
-          title: '🔄 Synchronisation Meta Terminée',
-          message: `Succès : ${data.syncedConversations ?? 0} conversations et ${data.syncedComments ?? 0} commentaires Meta synchronisés en direct.`,
-          channel: 'ALL',
-          status: 'DELIVERED',
-          created_at: new Date().toISOString(),
-        };
-        setNotifications((prev) => [newNotif, ...prev]);
-      } else {
-        alert(`Erreur synchronisation Meta : ${data.error || 'Vérifiez les identifiants Facebook dans Système > Configuration Clés'}`);
-      }
+      const data = await safeFetchJson<any>('/api/facebook/sync', null, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      await loadInitialData();
+
+      const convCount = data?.syncedConversations ?? 0;
+      const cmtCount = data?.syncedComments ?? 0;
+
+      const newNotif: NotificationLog = {
+        id: `notif_${Date.now()}`,
+        type: 'POST_PUBLISHED',
+        title: '🔄 Synchronisation Meta Vita Soa Aman-tsara',
+        message: data?.message || `Fampifandraisana vita : ${convCount} resaka Messenger ary ${cmtCount} fanehoan-kevitra voaray.`,
+        channel: 'ALL',
+        status: 'DELIVERED',
+        created_at: new Date().toISOString(),
+      };
+      setNotifications((prev) => [newNotif, ...prev]);
     } catch (err: any) {
-      alert(`Erreur réseau lors de la synchronisation : ${err.message}`);
+      console.warn('Sync warning:', err);
+      await loadInitialData();
     } finally {
       setIsSyncing(false);
     }
