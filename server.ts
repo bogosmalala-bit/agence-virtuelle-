@@ -244,6 +244,153 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
   app.post('/api/facebook/pages/connect', handleConnectPageHelper);
   app.post('/api/facebook/pages/connect-real', handleConnectPageHelper);
 
+  // Fast, server-side Meta User Token Importer with timeout and error handling
+  app.post('/api/facebook/import-user-token', async (req, res) => {
+    const { token, app_id } = req.body;
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ success: false, error: 'Token manan-kery no takiana' });
+    }
+
+    try {
+      const cleanToken = token.trim();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      // 1. Fetch User Profile
+      let userName = 'Mpampiasa Facebook';
+      let userAvatar = '';
+      let userId = `usr_${Date.now()}`;
+      let userEmail = '';
+
+      try {
+        const userRes = await fetch(`https://graph.facebook.com/v20.0/me?fields=id,name,email,picture{url}&access_token=${cleanToken}`, {
+          signal: controller.signal,
+        });
+        const userData: any = await userRes.json();
+        if (userData?.error) {
+          console.warn('[FB IMPORT USER ERROR]', userData.error);
+        } else if (userData?.id) {
+          userName = userData.name || userName;
+          userAvatar = userData.picture?.data?.url || '';
+          userId = userData.id;
+          userEmail = userData.email || '';
+        }
+      } catch (userErr) {
+        console.warn('[FB IMPORT USER FETCH FAILED]', userErr);
+      }
+
+      // Update db user
+      db.user.name = userName;
+      db.user.email = userEmail || db.user.email;
+      if (userAvatar) db.user.avatar_url = userAvatar;
+      db.user.facebook_id = userId;
+
+      // 2. Fetch User Permissions (to verify pages_show_list, etc.)
+      let grantedPermissions: string[] = [];
+      try {
+        const permRes = await fetch(`https://graph.facebook.com/v20.0/me/permissions?access_token=${cleanToken}`, {
+          signal: controller.signal,
+        });
+        const permData: any = await permRes.json();
+        if (Array.isArray(permData?.data)) {
+          grantedPermissions = permData.data
+            .filter((p: any) => p.status === 'granted')
+            .map((p: any) => p.permission);
+        }
+      } catch (pErr) {
+        console.warn('[FB PERM CHECK FAILED]', pErr);
+      }
+
+      // 3. Fetch Pages (/me/accounts)
+      let pagesData: any = null;
+      try {
+        const pagesRes = await fetch(`https://graph.facebook.com/v20.0/me/accounts?access_token=${cleanToken}&fields=id,name,category,picture{url},access_token,fan_count`, {
+          signal: controller.signal,
+        });
+        pagesData = await pagesRes.json();
+      } catch (pagesErr: any) {
+        console.warn('[FB ACCOUNTS FETCH FAILED]', pagesErr);
+        clearTimeout(timeoutId);
+        return res.status(500).json({
+          success: false,
+          error: `Tsy nahazoana valiny avy tamin'ny Meta Graph API: ${pagesErr.message || 'Timeout'}`,
+        });
+      }
+
+      clearTimeout(timeoutId);
+
+      if (pagesData?.error) {
+        return res.status(400).json({
+          success: false,
+          error: `Erreur Meta Graph API: ${pagesData.error.message || 'Token tsy manan-kery'} (Code: ${pagesData.error.code})`,
+          errorDetails: pagesData.error,
+          grantedPermissions,
+        });
+      }
+
+      const rawPages = Array.isArray(pagesData?.data) ? pagesData.data : [];
+      const importedPages: FacebookPage[] = [];
+
+      for (const item of rawPages) {
+        const pageId = String(item.id);
+        const pageToken = item.access_token || cleanToken;
+        const pageName = item.name || `Page Facebook (${pageId})`;
+        const pageCat = item.category || 'Commerce & Entreprise';
+        const pageAvatar = item.picture?.data?.url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+
+        const newPage: FacebookPage = {
+          id: `page_${pageId}`,
+          user_id: userId,
+          page_id: pageId,
+          page_name: pageName,
+          category: pageCat,
+          avatar_url: pageAvatar,
+          fan_count: item.fan_count || 100,
+          has_access_token: Boolean(pageToken),
+          page_access_token: pageToken,
+          token_status: 'VALID',
+          token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString(),
+          status: 'CONNECTED',
+          connected_at: new Date().toISOString(),
+          is_real_page: true,
+          is_real: true,
+          is_demo: false,
+        };
+
+        const existingIdx = db.facebookPages.findIndex((p) => p.page_id === pageId || p.id === newPage.id);
+        if (existingIdx >= 0) {
+          db.facebookPages[existingIdx] = newPage;
+        } else {
+          db.facebookPages.unshift(newPage);
+        }
+        importedPages.push(newPage);
+      }
+
+      if (importedPages.length > 0) {
+        db.activePageId = importedPages[0].id;
+      }
+      saveDb();
+
+      return res.json({
+        success: true,
+        userName,
+        userAvatar,
+        userId,
+        grantedPermissions,
+        pagesCount: importedPages.length,
+        pages: importedPages,
+        allPages: db.facebookPages,
+        activePageId: db.activePageId,
+      });
+    } catch (globalErr: any) {
+      console.error('[FB IMPORT GLOBAL ERR]', globalErr);
+      return res.status(500).json({
+        success: false,
+        error: globalErr.message || 'Erreur interne lors de l\'importation Facebook',
+      });
+    }
+  });
+
   // Restore client state if server restarted
   app.post('/api/sync/restore-state', (req, res) => {
     const { meta_app_id, meta_app_secret, pages, activePageId } = req.body;
