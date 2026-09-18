@@ -750,12 +750,15 @@ Générez une réponse courte, polie et vendeuse au format JSON :
 
   // Delete all demo pages to keep ONLY real Meta pages
   app.post('/api/facebook/pages/delete-demos', (req, res) => {
-    db.facebookPages = db.facebookPages.filter((p) => p.is_real_page || p.is_real);
+    db.facebookPages = db.facebookPages.filter(
+      (p) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+    );
     if (!db.facebookPages.some((p) => p.id === db.activePageId || p.page_id === db.activePageId)) {
       db.activePageId = db.facebookPages[0]?.id || '';
     }
     saveDb();
-    return res.json({ success: true, pages: db.facebookPages, activePageId: db.activePageId });
+    const activePage = db.facebookPages.find((p) => p.id === db.activePageId) || db.facebookPages[0] || null;
+    return res.json({ success: true, pages: db.facebookPages, activePageId: db.activePageId, active_page: activePage });
   });
 
   const handleConnectPageHelper = async (req: express.Request, res: express.Response) => {
@@ -829,6 +832,38 @@ Générez une réponse courte, polie et vendeuse au format JSON :
 
   app.post('/api/facebook/pages/connect', handleConnectPageHelper);
   app.post('/api/facebook/pages/connect-real', handleConnectPageHelper);
+
+  // Clear demo pages route
+  app.post('/api/facebook/pages/clear-demo', (req, res) => {
+    db.facebookPages = db.facebookPages.filter((p) => !p.is_demo);
+    if (db.facebookPages.length > 0) {
+      db.activePageId = db.facebookPages[0].id;
+    } else {
+      db.activePageId = '';
+    }
+    saveDb();
+    return res.json({
+      success: true,
+      pages: db.facebookPages,
+      activePageId: db.activePageId,
+      message: 'Ireo Page Démo rehetra dia voafaoka tanteraka.',
+    });
+  });
+
+  // Delete specific Facebook page route
+  app.delete('/api/facebook/pages/:id', (req, res) => {
+    const pageId = req.params.id;
+    db.facebookPages = db.facebookPages.filter((p) => p.id !== pageId && p.page_id !== pageId);
+    if (db.activePageId === pageId) {
+      db.activePageId = db.facebookPages[0]?.id || '';
+    }
+    saveDb();
+    return res.json({
+      success: true,
+      pages: db.facebookPages,
+      activePageId: db.activePageId,
+    });
+  });
 
   // Fast, server-side Meta User Token Importer with timeout and error handling
   app.post('/api/facebook/import-user-token', async (req, res) => {

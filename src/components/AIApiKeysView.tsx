@@ -112,6 +112,7 @@ export const AIApiKeysView: React.FC<AIApiKeysViewProps> = ({
     try {
       const res = await onTestKey(keyConfig.id);
       setTestResult({ id: keyConfig.id, message: res.message });
+      await onResetKeyStatus(keyConfig.id);
     } catch (err: any) {
       setTestResult({ id: keyConfig.id, message: `Échec : ${err.message}` });
     } finally {
@@ -299,7 +300,7 @@ export const AIApiKeysView: React.FC<AIApiKeysViewProps> = ({
                 </button>
 
                 <div className="flex items-center gap-2">
-                  {isQuota && (
+                  {(isQuota || isError) && (
                     <button
                       onClick={() => onResetKeyStatus(keySlot.id)}
                       className="flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-950/40 px-2 py-1 text-[10px] font-semibold text-amber-300 hover:bg-amber-900/60"
