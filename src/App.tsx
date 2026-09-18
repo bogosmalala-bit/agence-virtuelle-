@@ -141,6 +141,9 @@ export function App() {
         } else {
           setActivePage(localPages[0]);
         }
+      } else {
+        setPages([]);
+        setActivePage(null);
       }
 
       const [
@@ -178,34 +181,32 @@ export function App() {
       if (meRes?.assistantSettings) {
         setSettings(meRes.assistantSettings);
       }
-      if (Array.isArray(pagesRes) && pagesRes.length > 0) {
+      if (Array.isArray(pagesRes)) {
+        const cleanPages = pagesRes.filter(
+          (p) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+        );
         // Merge real pages from localStorage if server restarted
-        if (localPages && localPages.length > 0) {
-          const merged = [...localPages.filter((lp) => lp.is_real_page)];
-          for (const sp of pagesRes) {
-            if (!merged.some((m) => m.id === sp.id || m.page_id === sp.page_id)) {
-              merged.push(sp);
-            }
+        const realLocal = (localPages || []).filter(
+          (lp) => (lp.is_real_page || lp.is_real) && !lp.is_demo && lp.id !== 'page_mada_01' && lp.id !== 'page_mada_02' && lp.id !== 'page_1'
+        );
+        const merged = [...cleanPages];
+        for (const lp of realLocal) {
+          if (!merged.some((m) => m.id === lp.id || m.page_id === lp.page_id)) {
+            merged.push(lp);
           }
-          setPages(merged);
-          localPersistence.setPages(merged);
+        }
 
-          // Restore to server in background
-          const localAppId = localPersistence.getAppId();
-          const localAppSecret = localPersistence.getAppSecret();
-          fetch('/api/sync/restore-state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              meta_app_id: localAppId || undefined,
-              meta_app_secret: localAppSecret || undefined,
-              pages: merged,
-              activePageId: localActiveId || meRes?.activePage?.id,
-            }),
-          }).catch(() => {});
+        setPages(merged);
+        localPersistence.setPages(merged);
+
+        if (merged.length > 0) {
+          const activeId = localActiveId || meRes?.activePage?.id || merged[0].id;
+          const found = merged.find((p) => p.id === activeId || p.page_id === activeId) || merged[0];
+          setActivePage(found);
+          localPersistence.setActivePageId(found.id);
         } else {
-          setPages(pagesRes);
-          localPersistence.setPages(pagesRes);
+          setActivePage(null);
+          localPersistence.setActivePageId('');
         }
       }
       if (statsRes && typeof statsRes === 'object' && 'totalConversations' in statsRes) {
@@ -482,8 +483,46 @@ export function App() {
     const newMsg = await res.json();
     setMessages((prev) => [...prev, newMsg]);
     setConversations((prev) =>
-      prev.map((c) => (c.id === convId ? { ...c, last_message: text } : c))
+      prev.map((c) => (c.id === convId ? { ...c, last_message: text, status: 'HANDOFF_HUMAN' } : c))
     );
+    if (activeConversation?.id === convId) {
+      setActiveConversation((prev: any) => ({ ...prev, last_message: text, status: 'HANDOFF_HUMAN' }));
+    }
+  };
+
+  const handleSendTestCustomerMessage = async (text: string, convId?: string, customerName?: string) => {
+    try {
+      const res = await fetch('/api/conversations/simulate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_id: convId || activeConversation?.id || undefined,
+          message_text: text,
+          customer_name: customerName || 'Mpanjifa Andrana (Client Test)',
+        }),
+      });
+      const data = await res.json();
+      if (data.conversation) {
+        setConversations((prev) => {
+          const exists = prev.some((c) => c.id === data.conversation.id);
+          if (exists) {
+            return prev.map((c) => (c.id === data.conversation.id ? data.conversation : c));
+          } else {
+            return [data.conversation, ...prev];
+          }
+        });
+        setActiveConversation(data.conversation);
+      }
+      if (data.customerMessage) {
+        setMessages((prev) => [...prev, data.customerMessage]);
+      }
+      if (data.aiResponse) {
+        setMessages((prev) => [...prev, data.aiResponse]);
+      }
+      return data;
+    } catch (err) {
+      console.error('Simulation error:', err);
+    }
   };
 
   const handleToggleHandoff = async (convId: string, currentStatus: string) => {

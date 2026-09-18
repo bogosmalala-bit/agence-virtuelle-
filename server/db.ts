@@ -62,48 +62,13 @@ export const db: DatabaseSchema = {
     created_at: '2026-01-10T08:00:00.000Z',
   },
 
-  activePageId: 'page_mada_01',
+  activePageId: '',
 
-  facebookPages: [
-    {
-      id: 'page_mada_01',
-      user_id: 'usr_001',
-      page_id: '109283746592019',
-      page_name: 'Boutique Élite Madagascar',
-      category: 'Commerce de détail & High-Tech',
-      avatar_url: 'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?auto=format&fit=crop&w=200&h=200&q=80',
-      fan_count: 24850,
-      has_access_token: true,
-      token_status: 'VALID',
-      token_expires_at: '2026-12-31T23:59:59.000Z',
-      status: 'CONNECTED',
-      connected_at: '2026-02-01T10:00:00.000Z',
-      is_demo: true,
-      is_real_page: false,
-      is_real: false,
-    },
-    {
-      id: 'page_mada_02',
-      user_id: 'usr_001',
-      page_id: '204958372615294',
-      page_name: 'Élite Mode & Accessoires',
-      category: 'Mode & Beauté',
-      avatar_url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=200&h=200&q=80',
-      fan_count: 12400,
-      has_access_token: true,
-      token_status: 'VALID',
-      token_expires_at: '2026-11-30T23:59:59.000Z',
-      status: 'DISCONNECTED',
-      connected_at: '2026-02-15T14:30:00.000Z',
-      is_demo: true,
-      is_real_page: false,
-      is_real: false,
-    },
-  ],
+  facebookPages: [],
 
   assistantSettings: {
     id: 'sett_01',
-    page_id: 'page_mada_01',
+    page_id: '',
     name: 'Sarah',
     avatar_url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&h=200&q=80',
     is_active: true,
@@ -434,11 +399,15 @@ export function loadDb(): void {
           if (data.systemConfig) {
             db.systemConfig = { ...db.systemConfig, ...data.systemConfig };
           }
-          if (Array.isArray(data.facebookPages) && data.facebookPages.length > 0) {
-            db.facebookPages = data.facebookPages;
+          if (Array.isArray(data.facebookPages)) {
+            db.facebookPages = data.facebookPages.filter(
+              (p: any) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+            );
           }
-          if (data.activePageId) {
+          if (data.activePageId && data.activePageId !== 'page_mada_01' && data.activePageId !== 'page_mada_02' && data.activePageId !== 'page_1') {
             db.activePageId = data.activePageId;
+          } else {
+            db.activePageId = db.facebookPages[0]?.id || '';
           }
           if (data.assistantSettings) {
             db.assistantSettings = { ...db.assistantSettings, ...data.assistantSettings };

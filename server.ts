@@ -1025,9 +1025,12 @@ Générez une réponse courte, polie et vendeuse au format JSON :
       db.systemConfig.meta_app_secret = meta_app_secret.trim();
       modified = true;
     }
-    if (Array.isArray(pages) && pages.length > 0) {
+    if (Array.isArray(pages)) {
+      const cleanPages = pages.filter(
+        (p: any) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+      );
       // Merge real pages into db
-      for (const page of pages) {
+      for (const page of cleanPages) {
         if (page.is_real_page || page.is_real) {
           const idx = db.facebookPages.findIndex((p) => p.page_id === page.page_id || p.id === page.id);
           if (idx >= 0) {
@@ -1039,7 +1042,14 @@ Générez une réponse courte, polie et vendeuse au format JSON :
         }
       }
     }
-    if (activePageId && typeof activePageId === 'string') {
+    // Purge demo pages from db.facebookPages unconditionally
+    db.facebookPages = db.facebookPages.filter(
+      (p) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+    );
+    if (db.facebookPages.length === 0) {
+      db.activePageId = '';
+      modified = true;
+    } else if (activePageId && typeof activePageId === 'string') {
       const found = db.facebookPages.find((p) => p.id === activePageId || p.page_id === activePageId);
       if (found) {
         db.activePageId = found.id;
@@ -1050,7 +1060,7 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     if (modified) {
       saveDb();
     }
-    const activePage = db.facebookPages.find((p) => p.id === db.activePageId) || db.facebookPages[0];
+    const activePage = db.facebookPages.find((p) => p.id === db.activePageId) || null;
     res.json({
       success: true,
       activePage,
@@ -1574,19 +1584,20 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     res.json({ success: true, conversation: conv });
   });
 
-  app.post('/api/conversations/:id/messages', (req, res) => {
+  app.post('/api/conversations/:id/messages', async (req, res) => {
     const { id } = req.params;
-    const { message, sender, sender_name } = req.body;
+    const { message, sender, sender_name, trigger_ai } = req.body;
     const conv = db.conversations.find((c) => c.id === id);
     if (!conv) {
       return res.status(404).json({ error: 'Conversation non trouvée.' });
     }
 
+    const isCustomer = sender === 'CUSTOMER';
     const newMsg: Message = {
-      id: `msg_${Date.now()}`,
+      id: `msg_${Date.now()}_${isCustomer ? 'cust' : 'op'}`,
       conversation_id: conv.id,
       sender: sender || 'HUMAN_OPERATOR',
-      sender_name: sender_name || 'Opérateur (Vous)',
+      sender_name: sender_name || (isCustomer ? conv.customer_name : 'Opérateur (Vous)'),
       message,
       created_at: new Date().toISOString(),
     };
@@ -1595,7 +1606,74 @@ Générez une réponse courte, polie et vendeuse au format JSON :
     conv.last_message = message;
     conv.updated_at = new Date().toISOString();
 
-    res.status(201).json(newMsg);
+    // If human operator sent message, set status to HANDOFF_HUMAN so operator has control
+    if (!isCustomer) {
+      conv.status = 'HANDOFF_HUMAN';
+      return res.status(201).json(newMsg);
+    }
+
+    // If message is from Customer or trigger_ai requested, run AI response
+    if (conv.status === 'HANDOFF_HUMAN' && !trigger_ai) {
+      return res.status(201).json({ customerMessage: newMsg, aiResponse: null, conversation: conv });
+    }
+
+    try {
+      const recentMsgs = db.messages
+        .filter((m) => m.conversation_id === conv.id)
+        .slice(-8);
+
+      const history = recentMsgs.slice(0, -1).map((m) => ({
+        role: m.sender === 'CUSTOMER' ? ('user' as const) : ('model' as const),
+        parts: m.message,
+      }));
+
+      const systemInstruction = buildSystemInstruction(db.assistantSettings, db.products);
+      const userPromptWithContext = `Message du client (${conv.customer_name}) : "${message}"`;
+
+      const aiResult = await generateContentWithRotation(
+        userPromptWithContext,
+        systemInstruction,
+        history
+      );
+
+      let cleanReplyText = aiResult.text;
+      const attachments: any[] = [];
+
+      const attachRegex = /\[ATTACHMENT:\s*([^:]+):([^:]+):([^\]]+)\]/g;
+      let match;
+      while ((match = attachRegex.exec(cleanReplyText)) !== null) {
+        attachments.push({
+          url: match[1].trim(),
+          type: match[2].trim() as any,
+          name: match[3].trim(),
+        });
+      }
+      cleanReplyText = cleanReplyText.replace(attachRegex, '').trim();
+
+      const aiMsg: Message = {
+        id: `msg_${Date.now()}_ai`,
+        conversation_id: conv.id,
+        sender: 'AI_ASSISTANT',
+        sender_name: `${db.assistantSettings.name || 'Sarah'} (IA)`,
+        message: cleanReplyText,
+        attachments: attachments.length > 0 ? attachments : undefined,
+        created_at: new Date().toISOString(),
+      };
+
+      db.messages.push(aiMsg);
+      conv.last_message = cleanReplyText;
+      conv.updated_at = new Date().toISOString();
+
+      return res.status(201).json({
+        customerMessage: newMsg,
+        aiResponse: aiMsg,
+        conversation: conv,
+        modelUsed: aiResult.modelUsed,
+      });
+    } catch (err: any) {
+      console.error('[AI DIRECT MSG ERR]', err);
+      return res.status(201).json({ customerMessage: newMsg, aiResponse: null, conversation: conv });
+    }
   });
 
   // Client Simulation / Live Message Processing with AI

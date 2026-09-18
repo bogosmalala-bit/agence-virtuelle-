@@ -6,9 +6,7 @@ const META_GRAPH_VERSION = 'v20.0';
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
 // Secure token storage (in-memory server-side only)
-const pageTokensStore: Record<string, string> = {
-  page_mada_01: 'EAAQ...dummy_valid_page_access_token_secure',
-};
+const pageTokensStore: Record<string, string> = {};
 
 export function setPageAccessToken(pageId: string, token: string) {
   pageTokensStore[pageId] = token;

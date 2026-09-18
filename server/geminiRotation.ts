@@ -317,20 +317,171 @@ export async function generateContentWithRotation(
 }
 
 function generateSmartLocalFallback(prompt: string): string {
-  const isMalagasy = db.assistantSettings.primary_language !== 'Français';
-  const productsList = db.products
+  const pLower = prompt.toLowerCase();
+  const isMalagasy = db.assistantSettings.primary_language !== 'Français' || pLower.includes('manao ahoana') || pLower.includes('salama') || pLower.includes('tompoko') || pLower.includes('ohatrinona') || pLower.includes('inona') || pLower.includes('hividy') || pLower.includes('misaotra');
+  const assistantName = db.assistantSettings.name || 'Sarah';
+
+  // 1. Human Operator Request
+  if (
+    pLower.includes('olombelona') ||
+    pLower.includes('responsable') ||
+    pLower.includes('humain') ||
+    pLower.includes('opérateur') ||
+    pLower.includes('operateur') ||
+    pLower.includes('urgence') ||
+    pLower.includes('parler à quelqu\'un')
+  ) {
+    return isMalagasy
+      ? `Miarahaba tompoko ! Efa nafindra tany amin'ny tompon'andraikitra olombelona ny hafatrao. Hifandray aminao tsy ho ela ny ekipanay amin'ny laharana ${db.assistantSettings.operator_phone || 'finday'}. Misaotra amin'ny faharetanao !`
+      : `Bonjour ! Votre demande a bien été transmise à notre conseiller humain. Un responsable va prendre le relais très rapidement. Merci de votre patience !`;
+  }
+
+  // 2. Find matching products
+  const matchedProducts = db.products.filter((prod) => {
+    const nameMatch = prod.name.toLowerCase().split(/\s+/).some((w) => w.length > 2 && pLower.includes(w));
+    const descMatch = prod.description?.toLowerCase().split(/\s+/).some((w) => w.length > 3 && pLower.includes(w));
+    const catMatch = prod.category?.toLowerCase().split(/\s+/).some((w) => w.length > 3 && pLower.includes(w));
+    return nameMatch || descMatch || catMatch;
+  });
+
+  const targetProd = matchedProducts.length > 0 ? matchedProducts[0] : null;
+
+  // 3. Price or Product Details Inquiry
+  if (
+    pLower.includes('ohatrinona') ||
+    pLower.includes('prix') ||
+    pLower.includes('combien') ||
+    pLower.includes('vidiny') ||
+    pLower.includes('tarifs') ||
+    pLower.includes('cost') ||
+    pLower.includes('misy ve') ||
+    pLower.includes('dispo')
+  ) {
+    if (targetProd) {
+      const priceStr = targetProd.price !== null ? `${targetProd.price.toLocaleString('fr-FR')} Ar` : 'Sur devis';
+      const stock = targetProd.stock_status === 'DISPONIBLE' ? 'Misy tahiry (En stock)' : 'Lany tahiry (Rupture)';
+      if (isMalagasy) {
+        return `Miarahaba tompoko ! Ny vidin'ny "${targetProd.name}" dia ${priceStr}.\n\n` +
+          `📦 Toetoetran'ny tahiry : ${stock}\n` +
+          `📝 Mombamomba azy : ${targetProd.description.slice(0, 180)}...\n\n` +
+          `Tianao ve ny hanao commande ? Azafady valio eto ny :\n` +
+          `1. Anaranao feno sy laharana finday\n` +
+          `2. Isan'ny entana ilainao\n` +
+          `3. Adiresy mazava hanaterana azy (Faritra, Fokontany, Repère)`;
+      } else {
+        return `Bonjour ! Le prix pour "${targetProd.name}" est de ${priceStr}.\n\n` +
+          `📦 Disponibilité : ${stock}\n` +
+          `📝 Description : ${targetProd.description.slice(0, 180)}...\n\n` +
+          `Souhaitez-vous passer commande dès maintenant ? Merci de nous communiquer :\n` +
+          `- Votre Nom complet et Téléphone\n` +
+          `- La quantité souhaitée\n` +
+          `- Votre adresse de livraison précise (Ville, Quartier, Repère)`;
+      }
+    } else {
+      const catalogText = db.products
+        .slice(0, 5)
+        .map((p) => `• ${p.name} : ${p.price !== null ? p.price.toLocaleString('fr-FR') + ' Ar' : 'Sur devis'}`)
+        .join('\n');
+      return isMalagasy
+        ? `Miarahaba tompoko ! Ireto avy ireo entana sy vidiny misy ato aminay :\n\n${catalogText}\n\nInona amin'ireo no mahaliana anao indrindra tompoko ?`
+        : `Bonjour ! Voici la liste de nos articles phares disponibles :\n\n${catalogText}\n\nLequel de ces articles vous intéresse ?`;
+    }
+  }
+
+  // 4. Order intent
+  if (
+    pLower.includes('commande') ||
+    pLower.includes('hividy') ||
+    pLower.includes('commander') ||
+    pLower.includes('mividy') ||
+    pLower.includes('acheter') ||
+    pLower.includes('passer commande')
+  ) {
+    const prodToOrder = targetProd || db.products[0];
+    const prodName = prodToOrder ? prodToOrder.name : 'Produit';
+    const prodPrice = prodToOrder?.price || 0;
+
+    // Check if user already provided phone number (e.g. 034, 032, 033, 038)
+    const phoneMatch = prompt.match(/(?:03[23489]|034|032|033|038)\s?[0-9]{2}\s?[0-9]{3}\s?[0-9]{2}/);
+    if (phoneMatch && prompt.length > 40) {
+      // Order structured confirmation
+      const orderPayload = {
+        customer_name: 'Client Messenger',
+        facebook_name: 'Client Facebook',
+        product_id: prodToOrder?.id || 'prod_01',
+        product_name: prodName,
+        quantity: 1,
+        unit_price: prodPrice,
+        total: prodPrice,
+        phone: phoneMatch[0].replace(/\s/g, ''),
+        region: 'Analamanga',
+        district: 'Antananarivo',
+        quartier: 'Centre-ville',
+        landmark: 'Indications données en message',
+      };
+
+      return isMalagasy
+        ? `Tena misaotra tompoko ! Voaray soa aman-tsara ny kaomandinao ho an'ny "${prodName}" mitentina ${prodPrice.toLocaleString('fr-FR')} Ar.\n\n` +
+          `📞 Laharana finday : ${phoneMatch[0]}\n` +
+          `🛵 Efa manomana ny fanaterana ny ekipanay ary hiantso anao mialoha.\n\n` +
+          `[ORDER_CONFIRMED: ${JSON.stringify(orderPayload)}]`
+        : `Merci infiniment ! Votre commande pour "${prodName}" d'un montant de ${prodPrice.toLocaleString('fr-FR')} Ar est bien enregistrée.\n\n` +
+          `📞 Contact : ${phoneMatch[0]}\n` +
+          `🛵 Notre service logistique prépare l'expédition et vous contactera avant la livraison.\n\n` +
+          `[ORDER_CONFIRMED: ${JSON.stringify(orderPayload)}]`;
+    }
+
+    return isMalagasy
+      ? `Faly mandray ny kaomandinao tompoko ! Mba hanomanana ny fanaterana ny "${prodName}", azafady fenoy ireto fampahalalana ireto :\n\n` +
+        `1. Anaranao feno\n` +
+        `2. Laharana finday (034, 032, 033, 038...)\n` +
+        `3. Isan'ny entana tianao\n` +
+        `4. Toerana sy adiresy hanaterana azy (Faritra, Fokontany, Repère mazava)\n\n` +
+        `Avy hatrany dia ho raisinay an-tanana ny fandefasana rehefa voarainay ireo !`
+      : `C'est un plaisir de prendre votre commande ! Afin d'organiser la livraison de "${prodName}", merci de nous communiquer :\n\n` +
+        `1. Votre Nom complet\n` +
+        `2. Votre Numéro de téléphone joignable\n` +
+        `3. La Quantité souhaitée\n` +
+        `4. Votre Adresse exacte de livraison (Ville, Quartier, Repère)\n\n` +
+        `Dès réception, nous validons immédiatement l'expédition !`;
+  }
+
+  // 5. Delivery Inquiry
+  if (
+    pLower.includes('livraison') ||
+    pLower.includes('fanaterana') ||
+    pLower.includes('frais') ||
+    pLower.includes('province') ||
+    pLower.includes('tananarive') ||
+    pLower.includes('tana') ||
+    pLower.includes('mandefa')
+  ) {
+    return isMalagasy
+      ? `Miarahaba tompoko ! Eny, manatitra manerana an'i Madagasikara izahay :\n\n` +
+        `🛵 Antananarivo : Fanaterana ao anatin'ny 24h hatramin'ny 48h (Frais : 3.000 Ar hatramin'ny 5.000 Ar arakaraka ny toerana).\n` +
+        `📦 Provinces : Fandefasana amin'ny alalan'ny Cooperatives na Colis Express azo antoka.\n\n` +
+        `Inona no vokatra tianao hafindra tompoko ?`
+      : `Bonjour ! Oui, nous assurons la livraison sur tout Madagascar :\n\n` +
+        `🛵 Sur Antananarivo : Livraison sous 24h à 48h (Frais : 3 000 Ar à 5 000 Ar selon le quartier).\n` +
+        `📦 En Province : Expédition sécurisée via coopératives et transporteurs partenaires.\n\n` +
+        `Quel article souhaitez-vous recevoir ?`;
+  }
+
+  // 6. Greetings and General Welcome
+  const catalogSnippet = db.products
     .slice(0, 4)
-    .map((p) => `• ${p.name} : ${p.price !== null ? p.price.toLocaleString('fr-FR') + ' Ar' : 'Sur devis'}`)
+    .map((p) => `• ${p.name} (${p.price !== null ? p.price.toLocaleString('fr-FR') + ' Ar' : 'Sur devis'})`)
     .join('\n');
 
   if (isMalagasy) {
-    return `Miarahaba tompoko ! Faly mandray anao ny Assistante Virtuelle ${db.assistantSettings.name || 'Sarah'}.\n\n` +
-      `Efa voaray ny hafatrao. ` +
-      (productsList ? `Ireto misy santionany amin'ireo vokatra misy ato aminay :\n${productsList}\n\n` : '') +
-      `Afaka mametraka ny kaomandinao (Nom, Téléphone, Adiresy fanaterana) na manontany ny antsipiriany ianao. Misaotra tompoko !`;
+    return `Salama tompoko ! Faly mandray anao ny Assistante Virtuelle ${assistantName} ao amin'ny Page Facebook.\n\n` +
+      `Misy zavatra manokana azoko anampiana anao ve anio ?\n\n` +
+      `Ireto misy santionany amin'ireo vokatra misy ato aminay :\n${catalogSnippet}\n\n` +
+      `Afaka manontany ny vidiny, ny toetoetran'ny entana, na mametraka commande avy hatrany ianao !`;
   } else {
-    return `Bonjour ! Merci pour votre message. L'Assistante ${db.assistantSettings.name || 'Sarah'} est à votre service.\n\n` +
-      (productsList ? `Voici nos articles actuellement disponibles :\n${productsList}\n\n` : '') +
-      `N'hésitez pas à nous indiquer l'article souhaité ainsi que vos coordonnées de livraison. Comment pouvons-nous vous aider ?`;
+    return `Bonjour ! Bienvenue sur notre page Facebook. Je suis ${assistantName}, votre Assistante Virtuelle à votre service.\n\n` +
+      `Comment puis-je vous renseigner aujourd'hui ?\n\n` +
+      `Voici un aperçu de nos articles en vedette :\n${catalogSnippet}\n\n` +
+      `N'hésitez pas à poser vos questions sur nos tarifs, la livraison ou passer commande !`;
   }
 }

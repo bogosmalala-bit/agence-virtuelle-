@@ -65,8 +65,16 @@ export const localPersistence = {
       const raw = localStorage.getItem(STORAGE_KEYS.PAGES);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+        if (Array.isArray(parsed)) {
+          const clean = parsed.filter(
+            (p: any) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+          );
+          if (clean.length > 0) {
+            return clean;
+          } else {
+            localStorage.removeItem(STORAGE_KEYS.PAGES);
+            return null;
+          }
         }
       }
       return null;
@@ -77,13 +85,25 @@ export const localPersistence = {
 
   setPages: (pages: FacebookPage[]) => {
     try {
-      localStorage.setItem(STORAGE_KEYS.PAGES, JSON.stringify(pages));
+      const clean = (pages || []).filter(
+        (p: any) => !p.is_demo && p.id !== 'page_mada_01' && p.id !== 'page_mada_02' && p.id !== 'page_1'
+      );
+      if (clean.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.PAGES, JSON.stringify(clean));
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.PAGES);
+      }
     } catch {}
   },
 
   getActivePageId: (): string => {
     try {
-      return localStorage.getItem(STORAGE_KEYS.ACTIVE_PAGE_ID) || '';
+      const val = localStorage.getItem(STORAGE_KEYS.ACTIVE_PAGE_ID) || '';
+      if (val === 'page_mada_01' || val === 'page_mada_02' || val === 'page_1') {
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_PAGE_ID);
+        return '';
+      }
+      return val;
     } catch {
       return '';
     }
@@ -91,7 +111,7 @@ export const localPersistence = {
 
   setActivePageId: (id: string) => {
     try {
-      if (id) {
+      if (id && id !== 'page_mada_01' && id !== 'page_mada_02' && id !== 'page_1') {
         localStorage.setItem(STORAGE_KEYS.ACTIVE_PAGE_ID, id);
       } else {
         localStorage.removeItem(STORAGE_KEYS.ACTIVE_PAGE_ID);
